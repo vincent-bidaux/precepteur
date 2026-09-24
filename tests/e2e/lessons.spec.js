@@ -128,3 +128,36 @@ test("refus de Claude : message clair, les photos restent là", async ({ page })
   await expect(page.locator(".thumb")).toHaveCount(2);
   await expect(page.locator(".generate")).toBeEnabled();
 });
+
+test("sans photo : leçon générée à partir d'un plan ou d'une partie du programme", async ({ page, request }) => {
+  await page.goto("/#/parent/lecons");
+  const gen = page.locator(".generate");
+  await expect(gen).toBeDisabled();
+  await page.locator("#notes").fill("Français 5e");
+  await expect(gen).toBeDisabled(); // trop court pour construire une leçon
+  const plan = "Français, 5e — L'accord du participe passé\n1. Avec être\n2. Avec avoir\nContrôle lundi.";
+  await page.locator("#notes").fill(plan);
+  await expect(gen).toBeEnabled();
+  await gen.click();
+  await expect(page.locator(".created h3")).toContainText(TITLE, { timeout: 30000 });
+  const last = await (await request.get("http://localhost:4319/last")).json();
+  expect(last.images).toBe(0);
+  expect(last.text).toContain("Pas de photo");
+  expect(last.text).toContain("Contrôle lundi.");
+  await expect(page.locator(".admin-lesson", { hasText: TITLE }).locator(".al-status")).toHaveText("Brouillon");
+});
+
+test("coller depuis un document garde la structure (titres, listes, gras)", async ({ page }) => {
+  await page.goto("/#/parent/lecons");
+  const notes = page.locator("#notes");
+  await notes.fill("Niveau : ");
+  await notes.evaluate((el) => {
+    el.setSelectionRange(el.value.length, el.value.length);
+    const dt = new DataTransfer();
+    dt.setData("text/html", "<h3>Chapitre 2</h3><ol><li>Les <b>seigneurs</b></li><li>Les paysans</li></ol>");
+    dt.setData("text/plain", "Chapitre 2 Les seigneurs Les paysans");
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(notes).toHaveValue("Niveau : ### Chapitre 2\n\n1. Les **seigneurs**\n2. Les paysans");
+  await expect(page.locator(".generate")).toBeEnabled(); // le collage compte comme saisie
+});
