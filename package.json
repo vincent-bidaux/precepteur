@@ -1,0 +1,23 @@
+{
+  "name": "precepteur",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm test && npm run build && npm run test:e2e"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@netlify/blobs": "^10.7.9"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

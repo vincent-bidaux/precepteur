@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.data/
+.env
+.netlify/
+test-results/
+playwright-report/
+.data-e2e/
