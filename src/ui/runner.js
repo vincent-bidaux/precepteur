@@ -6,6 +6,7 @@ import { record } from "../lib/store.js";
 import { addLocalRecord, go } from "../app.js";
 import { cancelVisit } from "../lib/visits.js";
 import { seriesSummary } from "../lib/stats.js";
+import { aiGradingOf } from "../catalog.js";
 import { topbar, progressBar, noteBadge, stars, lessonUrl } from "./common.js";
 import { confetti } from "./fx.js";
 
@@ -419,7 +420,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
         const fb = app.querySelector(".feedback");
         fb.hidden = false;
         fb.innerHTML = `<div class="card thinking"><div class="spinner small"></div> Le précepteur lit ta réponse…</div>`;
-        const ai = await gradeWithAI(lesson, series, q, given, child);
+        const ai = aiGradingOf(lesson) ? await gradeWithAI(lesson, series, q, given, child) : null;
         if (ai && typeof ai.score === "number") res = { ...res, score: ai.score, ai: ai.feedback, found: ai.found?.length ? mapLabels(q, ai.found) : res.found };
       }
       showFeedback(q, given, res, usedHint, run.watch.elapsed - qStart, view);

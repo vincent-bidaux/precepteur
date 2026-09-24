@@ -20,6 +20,8 @@ import { parentCodeOk } from "./auth.js";
 import { validateInput, buildParams } from "./generate.js";
 import { saveNewLesson } from "./lessons.js";
 import { finalText, extractJson } from "../../src/lib/lesson-check.js";
+import { costOf } from "../../src/lib/pricing.js";
+import { addFailedCost } from "./costs.js";
 
 const MAX_CONTINUATIONS = 3; // reprises après une pause de la recherche web
 const STALE_CLAIM_MS = 3 * 60 * 1000;
@@ -74,6 +76,9 @@ export async function advanceJob(store, client, job) {
   let result = null;
   for await (const r of await client.messages.batches.results(job.batchId)) if (r.custom_id === job.id) result = r.result;
 
+  // chaque réponse de Claude est facturée (moitié prix en batch), même si la leçon échoue ensuite
+  if (result?.type === "succeeded") cur.cost = (cur.cost || 0) + costOf(result.message.usage, cur.params.model, { batch: true });
+
   let next;
   if (!result) next = fail(cur, "Résultat introuvable.");
   else if (result.type === "canceled") next = fail(cur, "Génération arrêtée.");
@@ -90,7 +95,13 @@ export async function advanceJob(store, client, job) {
     else if (msg.stop_reason === "max_tokens") next = fail(cur, "La leçon générée était trop longue et a été coupée. Réessaie avec moins de contenu.");
     else {
       try {
-        const out = await saveNewLesson(store, extractJson(finalText(msg.content)), cur.children, { generatedFrom: cur.label });
+        const out = await saveNewLesson(
+          store,
+          extractJson(finalText(msg.content)),
+          cur.children,
+          { generatedFrom: cur.label, aiCost: { creation: cur.cost || 0, model: cur.params.model } },
+          { aiGrading: cur.aiGrading },
+        );
         if (out.errors) next = fail(cur, `La leçon générée est incomplète : ${out.errors.slice(0, 3).join(" ; ")}`);
         else {
           await store.delete(`jobs/${cur.id}`);
@@ -101,6 +112,7 @@ export async function advanceJob(store, client, job) {
       }
     }
   }
+  if (next.status === "echec" && cur.cost) await addFailedCost(store, cur.cost).catch(() => {});
   await casWrite(store, cur, next);
   return next;
 }
@@ -139,7 +151,7 @@ export async function handleJobs(req, store, { client, parentCode } = {}) {
       // on repart de la demande d'origine (sans les éventuelles reprises)
       const params = { ...cur.data.params, messages: cur.data.params.messages.slice(0, 1) };
       const batchId = await submit(client, id, params);
-      const next = { ...cur.data, status: "en-cours", batchId, params, error: undefined, finishedAt: undefined, continuations: 0, createdAt: Date.now() };
+      const next = { ...cur.data, status: "en-cours", batchId, params, error: undefined, finishedAt: undefined, continuations: 0, cost: 0, createdAt: Date.now() }; // le coût de l'essai raté est déjà compté à part
       await store.setJSON(`jobs/${id}`, next);
       return json({ job: publicJob(next) });
     }
@@ -150,9 +162,9 @@ export async function handleJobs(req, store, { client, parentCode } = {}) {
       if (input.error) return json({ error: input.error }, input.status);
       const children = Array.isArray(body.children) ? body.children.filter((c) => CHILD_IDS.includes(c)) : CHILD_IDS;
       const jobId = `job-${rid()}`;
-      const params = buildParams(input.images, input.notes);
+      const params = buildParams(input.images, input.notes, input.model, input.size);
       const batchId = await submit(client, jobId, params);
-      const job = { id: jobId, status: "en-cours", batchId, createdAt: Date.now(), children, photos: input.images.length, label: labelOf(input.notes, input.images.length), params, continuations: 0 };
+      const job = { id: jobId, status: "en-cours", batchId, createdAt: Date.now(), children, photos: input.images.length, label: labelOf(input.notes, input.images.length), model: input.model, aiGrading: input.aiGrading, size: input.size, cost: 0, params, continuations: 0 };
       await store.setJSON(`jobs/${jobId}`, job);
       return json({ job: publicJob(job) }, 202);
     }

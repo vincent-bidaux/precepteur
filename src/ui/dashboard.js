@@ -1,7 +1,8 @@
 // Tableau de bord parent : temps passé, notes, points faibles, réponses libres.
 // Ouvert sans mot de passe pour le moment (voir README pour le protéger).
 import { CHILDREN } from "../data/children.js";
-import { lessonsFor, lessonById, findQuestion } from "../catalog.js";
+import { lessonsFor, lessonById, findQuestion, allLessons, lessonCosts, catalog } from "../catalog.js";
+import { MODELS, formatUsd } from "../lib/pricing.js";
 import { lessonProgress, childOverview, dailyActivity, weakQuestions, levelOf, STATUS_LABEL } from "../lib/stats.js";
 import { escapeHtml, rich, formatDate, formatDuration, formatNote } from "../lib/format.js";
 import { topbar, noteBadge } from "./common.js";
@@ -74,19 +75,51 @@ function summaryCard(child, ov) {
   </div>`;
 }
 
+function aiCell(l, child) {
+  const c = lessonCosts(l, child.id);
+  return c.graded ? `${formatUsd(c.grading)}<br><small class="muted">${c.graded} rép.</small>` : "–";
+}
+
+/** Coûts IA de toutes les leçons : création + corrections + créations ratées. */
+function costsCard() {
+  const rows = allLessons()
+    .map((l) => ({ l, c: lessonCosts(l) }))
+    .filter(({ c }) => c.creation || c.grading);
+  const creation = rows.reduce((s, r) => s + r.c.creation, 0);
+  const grading = rows.reduce((s, r) => s + r.c.grading, 0);
+  const failed = catalog.costs?.failed || 0;
+  const total = creation + grading + failed;
+  return `<section class="card costs-card">
+    <h2>💶 Coûts IA</h2>
+    <div class="tiles">
+      <div class="tile"><span class="tile-v">${formatUsd(total)}</span><span class="tile-l">au total</span></div>
+      <div class="tile"><span class="tile-v">${formatUsd(creation)}</span><span class="tile-l">créations de leçons</span></div>
+      <div class="tile"><span class="tile-v">${formatUsd(grading)}</span><span class="tile-l">corrections de réponses</span></div>
+    </div>
+    ${rows.length ? `<div class="table-wrap"><table class="dash-table"><thead><tr><th>Leçon</th><th>Création</th><th>Corrections IA</th><th>Total</th></tr></thead><tbody>${rows
+      .map(
+        ({ l, c }) => `<tr><td>${escapeHtml(l.icon || "")} ${escapeHtml(l.title)}</td><td>${l.builtin ? "intégrée" : `${formatUsd(c.creation)}${c.model ? ` <small class="muted">${MODELS[c.model]?.label || ""}</small>` : ""}`}</td>
+          <td>${c.graded ? `${formatUsd(c.grading)} <small class="muted">(${c.graded} rép.)</small>` : "–"}</td><td><strong>${formatUsd(c.creation + c.grading)}</strong></td></tr>`,
+      )
+      .join("")}</tbody></table></div>` : `<p class="muted small">Aucun coût IA pour l'instant.</p>`}
+    ${failed ? `<p class="muted small">Dont ${formatUsd(failed)} de créations qui n'ont pas abouti.</p>` : ""}
+    <p class="muted small">Montants calculés d'après les tarifs Anthropic ; la facture exacte est sur console.anthropic.com.</p>
+  </section>`;
+}
+
 function lessonsTable(child, records) {
   const rows = lessonsFor(child.id).map((l) => {
     const p = lessonProgress(l, records, child.id);
     const detail = l.series
       .map((s) => {
         const sm = p.series[s.id];
-        return `<tr class="sub"><td>↳ ${rich(s.title)}</td><td>${sm.attempts ? noteBadge(sm.best) : "–"}</td><td>${sm.attempts ? `${formatNote(sm.last)}/20` : "–"}</td><td>${sm.attempts}</td><td>${sm.attempts ? formatDuration(sm.timeMs) : "–"}</td><td>${sm.lastTs ? formatDate(sm.lastTs) : "–"}</td></tr>`;
+        return `<tr class="sub"><td>↳ ${rich(s.title)}</td><td>${sm.attempts ? noteBadge(sm.best) : "–"}</td><td>${sm.attempts ? `${formatNote(sm.last)}/20` : "–"}</td><td>${sm.attempts}</td><td>${sm.attempts ? formatDuration(sm.timeMs) : "–"}</td><td>${sm.lastTs ? formatDate(sm.lastTs) : "–"}</td><td></td></tr>`;
       })
       .join("");
     return `<tbody class="lesson-rows"><tr class="main"><td><strong>${l.icon} ${escapeHtml(l.title)}</strong><br><small class="muted">${escapeHtml(l.subject)} · <span class="pill status status-${p.status}">${STATUS_LABEL[p.status]}</span> · ${p.done}/${p.total} séries</small></td>
-      <td>${noteBadge(p.note)}</td><td></td><td></td><td>${formatDuration(p.timeMs)}</td><td>${p.lastTs ? formatDate(p.lastTs) : "–"}</td></tr>${detail}</tbody>`;
+      <td>${noteBadge(p.note)}</td><td></td><td></td><td>${formatDuration(p.timeMs)}</td><td>${p.lastTs ? formatDate(p.lastTs) : "–"}</td><td title="Réponses libres corrigées par l'IA pour ${escapeHtml(child.name)}">${aiCell(l, child)}</td></tr>${detail}</tbody>`;
   });
-  return `<div class="table-wrap"><table class="dash-table"><thead><tr><th>Leçon / série</th><th>Meilleure</th><th>Dernière</th><th>Essais</th><th>Temps</th><th>Dernière fois</th></tr></thead>${rows.join("")}</table></div>`;
+  return `<div class="table-wrap"><table class="dash-table"><thead><tr><th>Leçon / série</th><th>Meilleure</th><th>Dernière</th><th>Essais</th><th>Temps</th><th>Dernière fois</th><th>Coût IA</th></tr></thead>${rows.join("")}</table></div>`;
 }
 
 function weakList(child, records) {
@@ -152,6 +185,7 @@ export function renderDashboard(app, state) {
         <button type="button" class="btn ghost small reload">↻ Actualiser</button>
       </header>
       <div class="summaries">${overviews.map(({ c, ov }) => summaryCard(c, ov)).join("")}</div>
+      ${costsCard()}
       ${overviews
         .map(
           ({ c }) => `<section class="child-dash" id="dash-${c.id}" style="--c:${c.color}">

@@ -2,6 +2,7 @@
 // texte (plan, extrait du programme, notes) en leçon Précepteur (format JSON de src/lessons/*.js). La leçon intégrée sert
 // d'exemple complet du format et du niveau d'exigence attendu.
 import example from "../../src/lessons/maths-regles-de-calcul-1.js";
+import { sizeInstruction } from "../../src/lib/lesson-size.js";
 
 const EXAMPLE_JSON = JSON.stringify({ ...example, children: undefined, addedAt: undefined });
 
@@ -53,20 +54,21 @@ Types de questions (champ "type"), tous avec "id" unique dans la série, "prompt
 - "etapes": "steps": [{"label":"12 + 3 =","answer":15}]  (réponses numériques uniquement)
 - "libre": réponse rédigée. "model": réponse modèle complète ; "concepts": [{"label":"idée attendue","keywords":["mot-clé","synonyme","variante"]}] ; "minWords" facultatif. Les mots-clés sont courts (1 à 3 mots), sans article, en minuscules ; mets plusieurs variantes (synonymes, formes courantes, nombres en chiffres). La réponse modèle DOIT contenir au moins un mot-clé de chaque idée.
 
-Volume attendu : 3 à 6 sections de fiche ; 5 à 8 séries de 5 à 10 questions (40 à 60 questions au total), en variant les types ; au moins une réponse libre dans la plupart des séries, et une dernière série « Explique comme un prof » de 4 à 5 réponses libres. Pour une matière non scientifique, utilise surtout qcm, vf, trous, associer, ordre et libre.
+Volume : respecte exactement la longueur de fiche et le nombre de questions demandés dans le message du parent. Varie les types de questions ; mets au moins une réponse libre dans la plupart des séries, et termine par une série « Explique comme un prof » de réponses libres (elle compte dans le total). Pour une matière non scientifique, utilise surtout qcm, vf, trous, associer, ordre et libre.
 
 Mini-balisage dans tous les textes : **gras**, *italique*, 5^2 ou 2^{10} pour un exposant, \\n pour un retour à la ligne. Pas de HTML.
 
 Exemple complet d'une leçon réussie (même format, à imiter pour la qualité et la structure, pas pour le contenu) :
 ${EXAMPLE_JSON}`;
 
-export function userPrompt(notes, count) {
+export function userPrompt(notes, count, size) {
   const intro = count
     ? `Voici ${count} photo${count > 1 ? "s" : ""} d'une leçon, dans l'ordre. Construis la leçon Précepteur complète.`
     : "Pas de photo : construis la leçon Précepteur complète à partir du texte ci-dessous (plan, partie du programme ou notes). Rédige toi-même tout le cours.";
   return [
     intro,
     notes ? `${count ? "Précisions du parent (à respecter)" : "Texte du parent"} :\n<texte_parent>\n${notes}\n</texte_parent>` : "",
+    sizeInstruction(size),
     "Réponds uniquement avec l'objet JSON.",
   ]
     .filter(Boolean)
@@ -75,7 +77,11 @@ export function userPrompt(notes, count) {
 
 // Recherche limitée aux sites officiels de l'Éducation nationale.
 export const OFFICIAL_DOMAINS = ["education.gouv.fr", "eduscol.education.fr"];
-export const TOOLS = [
-  { type: "web_search_20260209", name: "web_search", max_uses: 5, allowed_domains: OFFICIAL_DOMAINS },
-  { type: "web_fetch_20260209", name: "web_fetch", max_uses: 5, allowed_domains: OFFICIAL_DOMAINS },
-];
+/** Outils de recherche selon le modèle (Haiku 4.5 n'a que les versions de base). */
+export function toolsFor(model) {
+  const legacy = model === "claude-haiku-4-5";
+  return [
+    { type: legacy ? "web_search_20250305" : "web_search_20260209", name: "web_search", max_uses: 5, allowed_domains: OFFICIAL_DOMAINS },
+    { type: legacy ? "web_fetch_20250910" : "web_fetch_20260209", name: "web_fetch", max_uses: 5, allowed_domains: OFFICIAL_DOMAINS },
+  ];
+}

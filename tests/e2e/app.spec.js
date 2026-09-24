@@ -247,7 +247,7 @@ test("réponse libre : idées repérées, réponse modèle, auto-évaluation vis
   const fa = page.locator("#dash-aurelius .free-answer").filter({ hasText: "4 au carré" });
   await expect(fa).toContainText("en partie");
   await expect(fa.locator("blockquote")).toHaveText(txt);
-  await expect(page.locator("#dash-aurelius .weak")).toContainText("3 + 4");
+  await expect(fa).toContainText("Correction IA"); // retour de l'IA visible par le parent
 });
 
 test("synchronisation : ce qui est fait sur un appareil apparaît sur l'autre", async ({ page, browser }) => {

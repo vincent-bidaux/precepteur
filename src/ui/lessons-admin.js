@@ -2,7 +2,9 @@
 // en tâche de fond — la page peut être fermée —, choisir pour quel enfant est
 // chaque leçon, publier / dépublier, supprimer.
 import { CHILDREN, childById } from "../data/children.js";
-import { allLessons, childrenOf, statusOf, loadCatalog } from "../catalog.js";
+import { allLessons, childrenOf, statusOf, loadCatalog, aiGradingOf, lessonCosts } from "../catalog.js";
+import { MODELS, CREATION_MODELS, DEFAULT_CREATION_MODEL, GRADING_MODEL, estimateCreation, estimateGrading, formatUsd } from "../lib/pricing.js";
+import { LENGTHS, DEFAULT_LENGTH, QUESTIONS, lengthInfo, seriesFor, minutesForQuestions } from "../lib/lesson-size.js";
 import { prepareImage } from "../lib/images.js";
 import { keepFormattingOnPaste } from "../lib/paste.js";
 import { lsGet, lsSet } from "../lib/storage.js";
@@ -46,6 +48,26 @@ export function parentTabs(active) {
   </nav>`;
 }
 
+/** Interrupteur façon iOS (case à cocher accessible, rôle « switch »). */
+export function iosSwitch(cls, on, label, hint = "") {
+  return `<label class="ios-switch ${cls}"><input type="checkbox" role="switch" ${on ? "checked" : ""} /><span class="ios-track" aria-hidden="true"></span>
+    <span class="ios-label"><strong>${label}</strong>${hint ? `<small class="muted">${hint}</small>` : ""}</span></label>`;
+}
+
+const AI_HINT_ON = () => {
+  const c = estimateGrading();
+  return `${c < 0.01 ? "Moins d'un centime" : `≈ ${formatUsd(c)}`} par réponse libre corrigée (${MODELS[GRADING_MODEL].label}).`;
+};
+const AI_HINT = () => `${AI_HINT_ON()} Désactivée : correction par mots-clés, aucun coût.`;
+
+function costLine(l) {
+  const c = lessonCosts(l);
+  const parts = [];
+  if (!l.builtin) parts.push(`création ${formatUsd(c.creation)}${c.model ? ` (${MODELS[c.model]?.label || c.model})` : ""}`);
+  parts.push(c.graded ? `corrections IA ${formatUsd(c.grading)} (${plural(c.graded, "réponse")})` : "aucune correction IA pour l'instant");
+  return `💶 ${parts.join(" · ")}`;
+}
+
 const countQuestions = (l) => l.series.reduce((n, s) => n + s.questions.length, 0);
 
 function childChecks(name, selected) {
@@ -66,6 +88,8 @@ function lessonRow(l) {
       </div>
       <span class="pill ${status === "publiee" ? "good" : "warn"} al-status">${status === "publiee" ? "Publiée" : "Brouillon"}</span>
     </div>
+    <p class="small muted al-cost">${costLine(l)}</p>
+    ${iosSwitch("ai-toggle", aiGradingOf(l), "Correction des réponses libres par l'IA", AI_HINT())}
     <div class="al-controls">
       <fieldset class="kids"><legend class="muted small">Pour</legend>${childChecks(`kids-${l.id}`, kids)}</fieldset>
       <div class="al-actions">
@@ -88,6 +112,7 @@ function jobRow(job) {
       <div class="al-title">
         <strong>${failed ? "Création échouée" : "Leçon en cours de création…"}</strong>
         <small class="muted">${escapeHtml(job.label || "")} · pour ${escapeHtml(kids)} · ${failed ? "" : "demandée "}${formatDate(job.createdAt)}</small>
+        <small class="muted">${escapeHtml(MODELS[job.model]?.label || "")}${job.size ? ` · fiche ${lengthInfo(job.size.length).label.toLowerCase()} · ${job.size.questions} questions` : ""}${job.cost ? ` · coût ${formatUsd(job.cost)}` : ""}${job.aiGrading === false ? " · sans correction IA" : ""}</small>
       </div>
       <span class="pill ${failed ? "warn" : ""} al-status">${failed ? "Échec" : "En cours"}</span>
     </div>
@@ -122,6 +147,23 @@ export function renderLessonsAdmin(app, state) {
           <textarea id="notes" rows="6" maxlength="${MAX_TEXT}" placeholder="${escapeHtml(TEXT_EXAMPLE)}"></textarea>
           <small class="muted text-help">Sans photo : un plan, ou juste la classe et le thème (« Programme de CM2 : les unités de mesure ») — Claude consulte le programme officiel et rédige tout le cours. Avec photos : précisions (niveau, date du contrôle, points à travailler). Le copier-coller depuis Word, Google Docs ou un site garde titres, listes et gras.</small></label>
         <fieldset class="kids"><legend>Pour qui ?</legend>${childChecks("new-kids", CHILDREN.map((c) => c.id))}</fieldset>
+
+        <div class="sliders">
+          <label class="slider"><span class="slider-top"><strong>📖 Longueur de la fiche</strong><output class="len-out"></output></span>
+            <input type="range" id="len" min="1" max="${LENGTHS.length}" step="1" value="${DEFAULT_LENGTH}" /></label>
+          <label class="slider"><span class="slider-top"><strong>✏️ Exercices</strong><output class="q-out"></output></span>
+            <input type="range" id="nq" min="${QUESTIONS.min}" max="${QUESTIONS.max}" step="${QUESTIONS.step}" value="${QUESTIONS.default}" /></label>
+        </div>
+
+        <fieldset class="models"><legend>Modèle Claude pour créer la leçon</legend>
+          ${CREATION_MODELS.map(
+            (m) => `<label class="model-card"><input type="radio" name="model" value="${m}" ${m === DEFAULT_CREATION_MODEL ? "checked" : ""} />
+              <span><strong>${MODELS[m].label}</strong>${m === DEFAULT_CREATION_MODEL ? ` <em class="pill good">recommandé</em>` : ""}<small class="muted">${MODELS[m].desc}</small><b class="model-cost" data-model="${m}"></b></span></label>`,
+          ).join("")}
+        </fieldset>
+        ${iosSwitch("new-ai", true, "Correction des réponses libres par l'IA", AI_HINT())}
+        <p class="muted small">Coûts estimés d'après les tarifs Anthropic (traitement différé, moitié prix). Le coût réel s'affiche ensuite sur chaque leçon.</p>
+
         <div class="actions"><button type="button" class="btn primary generate" disabled>🪄 Créer la leçon</button></div>
         <div class="gen-status" hidden aria-live="polite"></div>
       </section>
@@ -142,6 +184,19 @@ export function renderLessonsAdmin(app, state) {
   const stillHere = () => document.body.contains(listEl);
 
   // ───────── formulaire ─────────
+  const lenEl = app.querySelector("#len");
+  const nqEl = app.querySelector("#nq");
+  function updateSize() {
+    const l = lengthInfo(lenEl.value);
+    const n = Number(nqEl.value);
+    app.querySelector(".len-out").textContent = `${l.label} — ${l.sections} sections, ≈ ${l.minutes} min de lecture`;
+    app.querySelector(".q-out").textContent = `${n} questions en ${seriesFor(n)} séries — ≈ ${minutesForQuestions(n)} min`;
+    app.querySelectorAll(".model-cost").forEach((b) => {
+      b.textContent = `≈ ${formatUsd(estimateCreation(b.dataset.model, { photos: photos.length, length: l.level, questions: n }))} la leçon`;
+    });
+  }
+  lenEl.addEventListener("input", updateSize);
+  nqEl.addEventListener("input", updateSize);
   const hasContent = () => photos.length > 0 || notesEl.value.trim().length >= MIN_TEXT;
   const updateGenerate = () => (genBtn.disabled = busy || !hasContent());
   notesEl.addEventListener("input", updateGenerate);
@@ -154,6 +209,7 @@ export function renderLessonsAdmin(app, state) {
           <div class="thumb-btns">${i > 0 ? `<button type="button" data-left="${i}" aria-label="Avancer">◀</button>` : ""}<button type="button" data-del="${i}" aria-label="Retirer">✕</button></div></figure>`,
       )
       .join("");
+    updateSize();
     app.querySelector(".photo-count").textContent = photos.length ? `${plural(photos.length, "photo")} (${MAX_PHOTOS} maximum)` : `Aucune photo (${MAX_PHOTOS} maximum)`;
     updateGenerate();
   }
@@ -195,7 +251,14 @@ export function renderLessonsAdmin(app, state) {
       const res = await parentFetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images: photos.map(({ media_type, data }) => ({ media_type, data })), notes: notesEl.value, children: kids }),
+        body: JSON.stringify({
+          images: photos.map(({ media_type, data }) => ({ media_type, data })),
+          notes: notesEl.value,
+          children: kids,
+          model: app.querySelector('input[name="model"]:checked').value,
+          aiGrading: app.querySelector(".new-ai input").checked,
+          size: { length: Number(lenEl.value), questions: Number(nqEl.value) },
+        }),
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(errorMessage(out.error, res.status));
@@ -304,6 +367,16 @@ export function renderLessonsAdmin(app, state) {
           }
         }),
       );
+      const aiBox = row.querySelector(".ai-toggle input");
+      aiBox.addEventListener("change", async () => {
+        try {
+          await put({ aiGrading: aiBox.checked });
+          say(aiBox.checked ? "Correction IA activée ✓" : "Correction IA désactivée ✓ — mots-clés seulement, aucun coût");
+        } catch {
+          aiBox.checked = !aiBox.checked;
+          say("Échec de l'enregistrement, réessaie.", false);
+        }
+      });
       row.querySelector(".toggle-status").addEventListener("click", async (e) => {
         e.currentTarget.disabled = true;
         const lesson = allLessons().find((l) => l.id === id);
@@ -326,6 +399,7 @@ export function renderLessonsAdmin(app, state) {
     });
   }
 
+  updateSize();
   drawList();
   fetchJobs().then(() => {
     if (stillHere()) drawList();

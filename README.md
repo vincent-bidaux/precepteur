@@ -38,7 +38,16 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
   notes) ou simplement d'une partie du programme (« Programme de CM2 : les
   unités de mesure » : Claude consulte le programme officiel). La création
   se fait en arrière-plan : la leçon apparaît « en cours de création » et on
-  peut fermer la page (ou arrêter la création). Claude produit la fiche
+  peut fermer la page (ou arrêter la création). Réglages à la création :
+  **modèle** (Haiku 4.5 économique, Sonnet 5 recommandé, Opus 5 qualité
+  maximale, avec le coût estimé), **longueur de la fiche** et **nombre de
+  questions** (curseurs, avec temps estimés ; par défaut fiche moyenne et
+  40 questions), et **correction des réponses libres par l'IA** (interrupteur,
+  modifiable ensuite leçon par leçon : sans IA, correction par mots-clés et
+  aucun coût).
+- **Coûts IA** : coût réel de chaque création (sur la leçon) et des
+  corrections de réponses libres (par leçon et par enfant), dans l'onglet
+  Leçons et dans le tableau de bord. Tarifs dans `src/lib/pricing.js`. Claude produit la fiche
   de révision, 5 à 8 séries d'exercices corrigés et la partie « Plus loin ».
   La leçon est vérifiée automatiquement (résultats de calcul recalculés,
   questions mal formées retirées, remarques affichées), puis enregistrée en
@@ -99,7 +108,8 @@ enregistrée en brouillon, avec ses remarques de vérification. On peut
 arrêter une création en cours (annulée chez Anthropic) ou relancer une
 création échouée. Claude peut consulter le **programme officiel** (recherche
 web limitée à education.gouv.fr et eduscol.education.fr), par exemple pour
-« Programme de CM2 : les unités de mesure ». Modèle : `claude-opus-5`.
+« Programme de CM2 : les unités de mesure ». Modèle au choix (Sonnet 5 par
+défaut) ; corrections des réponses libres avec Haiku 4.5, le moins cher.
 (Les fonctions « background » de Netlify, plus rapides à suivre, ne sont pas
 disponibles sur l'offre gratuite.)
 

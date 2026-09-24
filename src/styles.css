@@ -443,3 +443,34 @@ fieldset.kids legend { font-weight: 700; margin-bottom: 6px; padding: 0; float: 
 .admin-lesson.job p { margin: 8px 0 0; }
 .al-notes { margin-top: 8px; }
 .al-notes ul { margin: 6px 0 0; padding-left: 1.2em; }
+
+/* ───────── Interrupteur façon iOS ───────── */
+.ios-switch { display: flex; align-items: center; gap: 12px; cursor: pointer; margin: 10px 0; }
+.ios-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.ios-track { position: relative; flex: none; width: 51px; height: 31px; border-radius: 999px; background: #d1d5db; transition: background 0.2s; }
+.ios-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgb(0 0 0 / 0.25); transition: transform 0.2s; }
+.ios-switch input:checked + .ios-track { background: #34c759; }
+.ios-switch input:checked + .ios-track::after { transform: translateX(20px); }
+.ios-switch input:focus-visible + .ios-track { outline: 3px solid var(--gold); outline-offset: 2px; }
+.ios-label { display: grid; gap: 2px; font-size: 0.95rem; }
+.ios-label small { font-size: 0.8rem; }
+
+/* ───────── Curseurs de taille, choix du modèle, coûts ───────── */
+.sliders { display: grid; gap: 14px; margin: 14px 0; }
+.slider { display: grid; gap: 6px; }
+.slider-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.slider output { font-size: 0.88rem; color: var(--ink-2); font-weight: 700; }
+.slider input[type="range"] { width: 100%; accent-color: var(--ink); height: 28px; }
+fieldset.models { border: 0; padding: 0; margin: 10px 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+fieldset.models legend { font-weight: 700; margin-bottom: 6px; padding: 0; }
+.model-card { position: relative; }
+.model-card input { position: absolute; opacity: 0; pointer-events: none; }
+.model-card > span { display: grid; gap: 2px; border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; background: #fff; height: 100%; }
+.model-card input:checked + span { border-color: var(--ink); background: var(--gold-soft); box-shadow: 0 0 0 1px var(--ink); }
+.model-card input:focus-visible + span { outline: 3px solid var(--gold); outline-offset: 2px; }
+.model-card em { font-style: normal; font-size: 0.7rem; }
+.model-cost { font-size: 0.85rem; margin-top: 2px; }
+.al-cost { margin: 8px 0 0; }
+.admin-lesson .ios-switch { margin: 8px 0 0; }
+.costs-card { margin-top: 16px; }
+.field .text-help { font-weight: 400; }
