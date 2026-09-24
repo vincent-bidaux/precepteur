@@ -33,7 +33,17 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
   `ANTHROPIC_API_KEY` est configurée sur Netlify, Claude corrige en plus la
   réponse et écrit un retour personnalisé ; sinon la correction par
   mots-clés s'applique seule, sans erreur.
-- **Espace parents** (`/#/parent`, bouton « Parents » en haut) : par enfant,
+- **Espace parents › Leçons** (`/#/parent/lecons`) : **créer une leçon avec
+  Claude** à partir de photos (cours, fiche, cahier). Claude produit la fiche
+  de révision, 5 à 8 séries d'exercices corrigés et la partie « Plus loin ».
+  La leçon est vérifiée automatiquement (résultats de calcul recalculés,
+  questions mal formées retirées, remarques affichées), puis enregistrée en
+  **brouillon** : on la parcourt en **aperçu** (rien n'est enregistré dans
+  les statistiques), on choisit **pour quel enfant** elle est, et on la
+  **publie** — elle apparaît alors dans « Nouveau » chez l'enfant. On peut
+  aussi réattribuer, dépublier ou supprimer n'importe quelle leçon (les
+  leçons intégrées au code ne se suppriment pas, mais s'attribuent).
+- **Espace parents › Suivi** (`/#/parent`, bouton « Parents » en haut) : par enfant,
   moyenne, temps (7 jours / total), jours actifs, graphique du temps sur 28
   jours, courbe des notes, détail par leçon et par série (meilleure et
   dernière note, essais, temps), points faibles (questions les plus ratées et
@@ -53,9 +63,15 @@ src/lib/stats.js            Progression, statuts, XP, jours d'affilée, points f
 src/lib/store.js            Journal côté client : file d'attente locale + envoi à /api/log
 src/lib/visits.js           Chronométrage des pages (temps visible uniquement)
 src/data/children.js        Les enfants (nom, couleur, emblème, devise)
-src/lessons/                Une leçon = un fichier de données ; index.js = registre
+src/lessons/                Leçons intégrées au code (une leçon = un fichier de données)
+src/catalog.js              Catalogue complet : leçons intégrées + créées, affectation, statut
+src/ui/lessons-admin.js     Espace parents › Leçons (photos → Claude, publication, affectation)
+src/lib/lesson-check.js     Vérification / réparation d'une leçon (tests, serveur, aperçu)
+src/lib/sse.js, images.js   Lecture du flux de Claude ; redimensionnement des photos
 netlify/functions/log.js    GET/POST /api/log   (journal, Netlify Blobs)
 netlify/functions/grade.js  POST /api/grade     (correction IA optionnelle)
+netlify/functions/lessons.js GET/POST/PUT/DELETE /api/lessons (leçons créées + réglages)
+netlify/edge-functions/generate.js POST /api/generate (photos → Claude, en streaming)
 netlify/shared/             Handlers testables, accès stockage, liste blanche des enfants
 ```
 
@@ -64,6 +80,12 @@ terminée, avec chaque réponse ; `visit` = temps passé sur une page).
 Stockage Netlify Blobs, store `precepteur`, un blob par enfant et par mois
 (`log/<enfant>/<AAAA-MM>`), écritures conditionnelles (etag) pour ne rien
 perdre si deux appareils écrivent en même temps, cohérence forte.
+
+**Leçons créées avec Claude** : `lessons/<id>` (contenu) et `meta/lessons`
+(affectation et statut de toutes les leçons, intégrées comprises). La
+génération passe par une **Edge Function** : elle dure 1 à 4 minutes, trop
+pour une fonction classique, et le flux de Claude est relayé tel quel au
+navigateur, qui vérifie la leçon puis l'enregistre. Modèle : `claude-opus-5`.
 
 **Hors ligne** : chaque évènement est d'abord mis en file dans le
 `localStorage`, puis envoyé ; le serveur ignore les doublons. Si le réseau
@@ -95,16 +117,24 @@ Netlify, sur un stockage fichier.
    publication `dist`, fonctions `netlify/functions`).
 3. Nom du site : `precepteur` → https://precepteur.netlify.app
 4. Netlify Blobs fonctionne sans configuration.
-5. *(Optionnel)* Correction IA des réponses libres : *Site configuration →
-   Environment variables* → `ANTHROPIC_API_KEY`. Modèle utilisé :
-   `claude-opus-5`, effort réduit (réponses courtes).
+5. *Site configuration → Environment variables* :
+   - `ANTHROPIC_API_KEY` (clé sur https://console.anthropic.com) : **nécessaire
+     pour créer des leçons avec Claude**, et active aussi la correction IA
+     des réponses libres. Sans elle, l'application fonctionne mais ces deux
+     fonctions sont désactivées (message explicite).
+   - `PRECEPTEUR_CODE_PARENT` *(recommandé)* : un code que l'on demandera
+     avant de créer, publier, attribuer ou supprimer une leçon (la génération
+     coûte quelques dizaines de centimes par leçon : ce code évite qu'un
+     inconnu tombé sur l'adresse ne s'en serve). Il est mémorisé sur
+     l'appareil après la première saisie.
+   Après avoir ajouté une variable : *Deploys → Trigger deploy*.
 
 Ensuite chaque push sur `main` redéploie.
 
 ## Ajouter une leçon
 
-Le plus simple : envoyer à Claude les photos de la leçon en demandant « crée
-la leçon suivante dans Précepteur ». À la main :
+Le plus simple : **Parents › Leçons › Créer une leçon avec Claude**, avec
+les photos. Pour une leçon intégrée au code (versionnée dans git) :
 
 1. Copier `src/lessons/maths-regles-de-calcul-1.js` en
    `src/lessons/<matiere>-<sujet>.js` et remplacer le contenu : `id` unique,

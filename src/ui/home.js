@@ -1,6 +1,6 @@
 // Accueil : un onglet par enfant ; leçons à suivre, nouvelles, puis passées.
 import { CHILDREN } from "../data/children.js";
-import { lessonsFor } from "../lessons/index.js";
+import { lessonsFor } from "../catalog.js";
 import { lessonProgress, childOverview, levelOf, STATUS_LABEL } from "../lib/stats.js";
 import { escapeHtml, formatDate, formatDuration, plural } from "../lib/format.js";
 import { topbar, noteBadge, progressBar } from "./common.js";

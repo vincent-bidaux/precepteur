@@ -43,6 +43,9 @@ function fileStore(dir) {
         return { modified: true, etag: etagOf(text) };
       });
     },
+    delete(key) {
+      return withLock(key, () => fs.rm(fileFor(key), { force: true }));
+    },
     async list({ prefix = "" } = {}) {
       let names = [];
       try {

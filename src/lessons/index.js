@@ -1,14 +1,12 @@
-// Registre des leçons. Ajouter une leçon = créer un fichier dans ce dossier
-// (voir README) puis l'importer ici. L'ordre du tableau n'a pas d'importance :
-// l'accueil trie par date d'ajout.
+// Leçons intégrées au code. Ajouter une leçon à la main = créer un fichier
+// dans ce dossier (voir README) puis l'importer ici. Les leçons créées avec
+// Claude depuis l'espace parents sont stockées sur le serveur, pas ici ; le
+// catalogue complet côté client est dans src/catalog.js.
 import reglesDeCalcul1 from "./maths-regles-de-calcul-1.js";
 
 export const LESSONS = [reglesDeCalcul1];
 
 export const lessonById = (id) => LESSONS.find((l) => l.id === id);
-
-export const lessonsFor = (childId) =>
-  LESSONS.filter((l) => !l.children || l.children.includes(childId)).sort((a, b) => b.addedAt.localeCompare(a.addedAt));
 
 export function findQuestion(lessonId, qid) {
   // qid = "<serie>/<question>"

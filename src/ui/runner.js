@@ -6,7 +6,7 @@ import { record } from "../lib/store.js";
 import { addLocalRecord, go } from "../app.js";
 import { cancelVisit } from "../lib/visits.js";
 import { seriesSummary } from "../lib/stats.js";
-import { topbar, progressBar, noteBadge, stars } from "./common.js";
+import { topbar, progressBar, noteBadge, stars, lessonUrl } from "./common.js";
 import { confetti } from "./fx.js";
 
 // ───────── utilitaires ─────────
@@ -251,7 +251,7 @@ async function gradeWithAI(lesson, series, q, text, child) {
 // ───────── la série ─────────
 export function renderRunner(app, { child, lesson, series, state, questions, mode = "normal" }) {
   const qs = questions || series.questions;
-  const lessonUrl = `#/enfant/${child.id}/lecon/${lesson.id}/entrainer`;
+  const backUrl = lessonUrl(child, lesson, "entrainer");
   const run = { i: 0, results: [], watch: new Stopwatch() };
   const onVis = () => (document.visibilityState === "visible" ? run.watch.resume() : run.watch.pause());
   document.addEventListener("visibilitychange", onVis);
@@ -269,7 +269,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
     let validated = false;
 
     app.innerHTML = `
-      ${topbar({ back: lessonUrl, backLabel: "Quitter", title: series.title })}
+      ${topbar({ back: backUrl, backLabel: "Quitter", title: series.title })}
       <main class="page narrow runner">
         <div class="runner-head">
           <span class="muted">${mode === "retry" ? "🔁 On refait les erreurs · " : ""}Question ${run.i + 1} / ${qs.length}</span>
@@ -458,7 +458,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
     const max = run.results.reduce((s, r) => s + r.entry.max, 0);
     const n20 = note20(score, max);
     const before = seriesSummary(state.records, child.id, lesson.id, series.id);
-    const rec = record({
+    const rec = (child.preview ? (r) => ({ id: "apercu", ts: Date.now(), ...r }) : record)({
       type: "attempt",
       child: child.id,
       lessonId: lesson.id,
@@ -470,7 +470,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
       note20: n20,
       answers: run.results.map((r) => r.entry),
     });
-    addLocalRecord(rec);
+    if (!child.preview) addLocalRecord(rec);
     cancelVisit(); // le temps est déjà dans la tentative
 
     const misses = run.results.filter((r) => r.res.score < 0.999).map((r) => r.q);
@@ -482,7 +482,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
       n20 >= 18 ? "Magnifique ! Tu maîtrises ce sujet." : n20 >= 14 ? "Très bien ! Encore un petit effort pour la perfection." : n20 >= 10 ? "C'est un bon début. Relis les explications et retente ta chance !" : "Courage ! Relis la fiche de révision, puis refais la série : tu vas progresser.";
 
     app.innerHTML = `
-      ${topbar({ back: lessonUrl, backLabel: "La leçon" })}
+      ${topbar({ back: backUrl, backLabel: "La leçon" })}
       <main class="page narrow runner">
         <section class="card result">
           <p class="muted">${escapeHtml(series.title)}${mode === "retry" ? " · on a refait les erreurs" : ""}</p>
@@ -496,9 +496,9 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
           ${mode === "retry" ? `<p class="muted small">Ce tour « erreurs » ne change pas ta note de série, mais il compte pour ton XP.</p>` : ""}
           <div class="actions wrap">
             ${misses.length ? `<button type="button" class="btn primary retry">🔁 Refaire mes ${misses.length} erreur${misses.length > 1 ? "s" : ""}</button>` : ""}
-            ${nextSeries && mode !== "retry" ? `<a class="btn ${misses.length ? "" : "primary"}" href="#/enfant/${child.id}/lecon/${lesson.id}/serie/${nextSeries.id}">Série suivante →</a>` : ""}
+            ${nextSeries && mode !== "retry" ? `<a class="btn ${misses.length ? "" : "primary"}" href="${lessonUrl(child, lesson, `serie/${nextSeries.id}`)}">Série suivante →</a>` : ""}
             <button type="button" class="btn ghost again">Recommencer la série</button>
-            <a class="btn ghost" href="${lessonUrl}">Retour à la leçon</a>
+            <a class="btn ghost" href="${backUrl}">Retour à la leçon</a>
           </div>
         </section>
         <section class="card recap">
@@ -510,7 +510,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
       </main>`;
     if (n20 >= 16) confetti();
     app.querySelector(".retry")?.addEventListener("click", () => renderRunner(app, { child, lesson, series, state, questions: misses, mode: "retry" }));
-    app.querySelector(".again").addEventListener("click", () => go(`#/enfant/${child.id}/lecon/${lesson.id}/serie/${series.id}`));
+    app.querySelector(".again").addEventListener("click", () => go(lessonUrl(child, lesson, `serie/${series.id}`)));
   }
 
   showQuestion();

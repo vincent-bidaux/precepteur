@@ -1,5 +1,6 @@
 // État partagé de l'application (journal chargé) et navigation.
 import { loadRecords, mergeRecords } from "./lib/store.js";
+import { loadCatalog } from "./catalog.js";
 
 export const state = {
   records: [],
@@ -12,7 +13,7 @@ export function addLocalRecord(rec) {
 }
 
 export async function refresh() {
-  const { records, online } = await loadRecords();
+  const [{ records, online }] = await Promise.all([loadRecords(), loadCatalog()]);
   state.records = records;
   state.online = online;
   state.loaded = true;

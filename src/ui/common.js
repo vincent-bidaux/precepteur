@@ -16,6 +16,10 @@ export function topbar({ back, backLabel = "Accueil", title } = {}) {
   </header>`;
 }
 
+/** Adresse d'une leçon (ou d'une de ses pages) pour cet enfant — ou en aperçu parent. */
+export const lessonUrl = (child, lesson, suffix = "") =>
+  (child.preview ? `#/apercu/${lesson.id}` : `#/enfant/${child.id}/lecon/${lesson.id}`) + (suffix ? `/${suffix}` : "");
+
 export function noteBadge(note, { size = "" } = {}) {
   if (note === null || note === undefined) return `<span class="note-badge none ${size}">–</span>`;
   const cls = note >= 16 ? "great" : note >= 12 ? "good" : note >= 8 ? "mid" : "low";
