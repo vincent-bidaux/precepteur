@@ -34,7 +34,11 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
   réponse et écrit un retour personnalisé ; sinon la correction par
   mots-clés s'applique seule, sans erreur.
 - **Espace parents › Leçons** (`/#/parent/lecons`) : **créer une leçon avec
-  Claude** à partir de photos (cours, fiche, cahier). Claude produit la fiche
+  Claude** à partir de photos (cours, fiche, cahier), d'un texte (plan,
+  notes) ou simplement d'une partie du programme (« Programme de CM2 : les
+  unités de mesure » : Claude consulte le programme officiel). La création
+  se fait en arrière-plan : la leçon apparaît « en cours de création » et on
+  peut fermer la page (ou arrêter la création). Claude produit la fiche
   de révision, 5 à 8 séries d'exercices corrigés et la partie « Plus loin ».
   La leçon est vérifiée automatiquement (résultats de calcul recalculés,
   questions mal formées retirées, remarques affichées), puis enregistrée en
@@ -71,7 +75,8 @@ src/lib/sse.js, images.js   Lecture du flux de Claude ; redimensionnement des ph
 netlify/functions/log.js    GET/POST /api/log   (journal, Netlify Blobs)
 netlify/functions/grade.js  POST /api/grade     (correction IA optionnelle)
 netlify/functions/lessons.js GET/POST/PUT/DELETE /api/lessons (leçons créées + réglages)
-netlify/edge-functions/generate.js POST /api/generate (photos → Claude, en streaming)
+netlify/functions/jobs.js   GET/POST/DELETE /api/jobs (leçons en cours de création)
+netlify/functions/jobs-tick.js  fonction planifiée (chaque minute) : fait avancer les créations
 netlify/shared/             Handlers testables, accès stockage, liste blanche des enfants
 ```
 
@@ -82,10 +87,21 @@ Stockage Netlify Blobs, store `precepteur`, un blob par enfant et par mois
 perdre si deux appareils écrivent en même temps, cohérence forte.
 
 **Leçons créées avec Claude** : `lessons/<id>` (contenu) et `meta/lessons`
-(affectation et statut de toutes les leçons, intégrées comprises). La
-génération passe par une **Edge Function** : elle dure 1 à 4 minutes, trop
-pour une fonction classique, et le flux de Claude est relayé tel quel au
-navigateur, qui vérifie la leçon puis l'enregistre. Modèle : `claude-opus-5`.
+(affectation et statut de toutes les leçons, intégrées comprises).
+
+**Création en arrière-plan** : la demande (photos et/ou texte) part dans
+l'**API Batches** d'Anthropic (`jobs/<id>`), traitée sans que la page reste
+ouverte — en général quelques minutes, au plus 24 h, et 50 % moins cher. Le
+serveur vérifie où elle en est chaque minute (fonction planifiée
+`jobs-tick`, uniquement sur le site de production) et à chaque ouverture de
+l'espace parents ; quand Claude a fini, la leçon est vérifiée, réparée et
+enregistrée en brouillon, avec ses remarques de vérification. On peut
+arrêter une création en cours (annulée chez Anthropic) ou relancer une
+création échouée. Claude peut consulter le **programme officiel** (recherche
+web limitée à education.gouv.fr et eduscol.education.fr), par exemple pour
+« Programme de CM2 : les unités de mesure ». Modèle : `claude-opus-5`.
+(Les fonctions « background » de Netlify, plus rapides à suivre, ne sont pas
+disponibles sur l'offre gratuite.)
 
 **Hors ligne** : chaque évènement est d'abord mis en file dans le
 `localStorage`, puis envoyé ; le serveur ignore les doublons. Si le réseau

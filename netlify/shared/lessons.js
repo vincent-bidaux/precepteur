@@ -53,6 +53,24 @@ export async function loadLesson(store, id) {
 const cleanChildren = (list) => (Array.isArray(list) ? [...new Set(list.filter((c) => CHILD_IDS.includes(c)))] : null);
 const today = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * Vérifie, répare et enregistre une nouvelle leçon en brouillon.
+ * → { lesson, meta, fixes, warnings } ou { errors, fixes } si inutilisable.
+ */
+export async function saveNewLesson(store, input, children, extra = {}) {
+  const { lesson, fixes } = repairLesson(input);
+  const { errors, warnings } = checkLesson(lesson);
+  if (errors.length) return { errors, fixes };
+  // identifiant unique (jamais celui d'une leçon existante)
+  let finalId = lesson.id;
+  for (let n = 2; isBuiltin(finalId) || (await store.getWithMetadata(`lessons/${finalId}`)); n++) finalId = `${lesson.id}-${n}`;
+  const saved = { ...lesson, ...extra, id: finalId, builtin: undefined, origin: "claude", addedAt: today(), createdAt: Date.now(), checkNotes: [...fixes.map((f) => `🔧 ${f}`), ...warnings.map((w) => `⚠️ ${w}`)] };
+  await store.setJSON(`lessons/${finalId}`, saved);
+  const kids = cleanChildren(children) ?? CHILD_IDS;
+  const meta = await updateMeta(store, (m) => ({ ...m, [finalId]: { children: kids, status: "brouillon" } }));
+  return { lesson: saved, meta, fixes, warnings };
+}
+
 export async function handleLessons(req, store, { parentCode } = {}) {
   try {
     const url = new URL(req.url);
@@ -73,17 +91,9 @@ export async function handleLessons(req, store, { parentCode } = {}) {
       } catch {
         return json({ error: "bad_request" }, 400);
       }
-      const { lesson, fixes } = repairLesson(body?.lesson);
-      const { errors, warnings } = checkLesson(lesson);
-      if (errors.length) return json({ error: "lecon_invalide", errors, fixes }, 422);
-      // identifiant unique (jamais celui d'une leçon existante)
-      let finalId = lesson.id;
-      for (let n = 2; isBuiltin(finalId) || (await store.getWithMetadata(`lessons/${finalId}`)); n++) finalId = `${lesson.id}-${n}`;
-      const saved = { ...lesson, id: finalId, builtin: undefined, origin: "claude", addedAt: today(), createdAt: Date.now() };
-      await store.setJSON(`lessons/${finalId}`, saved);
-      const children = cleanChildren(body.children) ?? CHILD_IDS;
-      const meta = await updateMeta(store, (m) => ({ ...m, [finalId]: { children, status: "brouillon" } }));
-      return json({ lesson: saved, meta, fixes, warnings }, 201);
+      const out = await saveNewLesson(store, body?.lesson, body?.children);
+      if (out.errors) return json({ error: "lecon_invalide", errors: out.errors, fixes: out.fixes }, 422);
+      return json(out, 201);
     }
 
     if (req.method === "PUT") {

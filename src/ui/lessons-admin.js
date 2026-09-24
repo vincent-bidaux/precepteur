@@ -1,13 +1,12 @@
-// Espace parents › Leçons : créer une leçon avec Claude à partir de photos,
-// choisir pour quel enfant est chaque leçon, publier / dépublier, supprimer.
+// Espace parents › Leçons : créer une leçon avec Claude (photos et/ou texte),
+// en tâche de fond — la page peut être fermée —, choisir pour quel enfant est
+// chaque leçon, publier / dépublier, supprimer.
 import { CHILDREN, childById } from "../data/children.js";
 import { allLessons, childrenOf, statusOf, loadCatalog } from "../catalog.js";
 import { prepareImage } from "../lib/images.js";
 import { keepFormattingOnPaste } from "../lib/paste.js";
-import { collectText, extractJson, GenerationError } from "../lib/sse.js";
-import { repairLesson, checkLesson } from "../lib/lesson-check.js";
 import { lsGet, lsSet } from "../lib/storage.js";
-import { escapeHtml, formatDate, formatDuration, plural } from "../lib/format.js";
+import { escapeHtml, formatDate, plural } from "../lib/format.js";
 import { topbar } from "./common.js";
 
 const MAX_PHOTOS = 10;
@@ -18,9 +17,11 @@ Histoire, 5e — Chapitre « L'émergence des royaumes chrétiens (XIe-XVe s.) �
 1. La société féodale : seigneurs, vassaux, paysans
 2. Le pouvoir royal s'affirme : Philippe Auguste, Saint Louis
 3. L'Église encadre la société
-Contrôle vendredi, insister sur les dates et le vocabulaire.`;
+Contrôle vendredi, insister sur les dates et le vocabulaire.
+
+Ou simplement : « Programme de CM2 : les unités de mesure »`;
 const K_CODE = "precepteur:parent-code";
-const EXPECTED_CHARS = 60000; // taille typique d'une leçon générée, pour la jauge
+const POLL_MS = 15000; // vérification des leçons en cours de création (modifiable pour les tests)
 
 /** fetch pour les actions parent : ajoute le code parent si le serveur en demande un. */
 export async function parentFetch(url, opts = {}, retry = true) {
@@ -73,15 +74,36 @@ function lessonRow(l) {
         ${l.builtin ? "" : `<button type="button" class="btn ghost small danger delete">🗑️</button>`}
       </div>
     </div>
+    ${l.checkNotes?.length ? `<details class="small al-notes"><summary>${plural(l.checkNotes.length, "remarque")} de vérification automatique</summary><ul>${l.checkNotes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul></details>` : ""}
     <p class="al-msg small" aria-live="polite"></p>
+  </article>`;
+}
+
+function jobRow(job) {
+  const kids = (job.children || []).map((k) => childById(k)?.name).filter(Boolean).join(" et ") || "personne";
+  const failed = job.status === "echec";
+  return `<article class="admin-lesson card job ${failed ? "failed" : ""}" data-job="${escapeHtml(job.id)}">
+    <div class="al-head">
+      <span class="lc-icon small">${failed ? "⚠️" : `<span class="spinner small" aria-hidden="true"></span>`}</span>
+      <div class="al-title">
+        <strong>${failed ? "Création échouée" : "Leçon en cours de création…"}</strong>
+        <small class="muted">${escapeHtml(job.label || "")} · pour ${escapeHtml(kids)} · ${failed ? "" : "demandée "}${formatDate(job.createdAt)}</small>
+      </div>
+      <span class="pill ${failed ? "warn" : ""} al-status">${failed ? "Échec" : "En cours"}</span>
+    </div>
+    ${failed ? `<p class="error small">${escapeHtml(job.error || "")}</p>` : `<p class="muted small">Claude prépare la leçon : en général quelques minutes, parfois jusqu'à une heure. Tu peux fermer cette page, elle apparaîtra ici en brouillon.</p>`}
+    <div class="al-actions">
+      ${failed ? `<button type="button" class="btn small retry-job">🔁 Réessayer</button>` : ""}
+      <button type="button" class="btn ghost small danger stop-job">${failed ? "🗑️ Supprimer" : "⏹ Arrêter la génération et supprimer"}</button>
+    </div>
   </article>`;
 }
 
 export function renderLessonsAdmin(app, state) {
   const photos = []; // { media_type, data, preview, name }
   let busy = false;
-
-  const lessons = allLessons().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0) || String(b.addedAt).localeCompare(String(a.addedAt)));
+  let jobs = [];
+  let pollTimer = null;
 
   app.innerHTML = `
     ${topbar({ back: "#/", backLabel: "Accueil", title: "Espace parents" })}
@@ -89,7 +111,7 @@ export function renderLessonsAdmin(app, state) {
       ${parentTabs("lecons")}
       <section class="card creator" id="creer">
         <h2>✨ Créer une leçon avec Claude</h2>
-        <p class="muted">Pars de <strong>photos</strong> de la leçon (cours, fiche, cahier, dans l'ordre), d'un <strong>texte</strong> (plan de cours, partie du programme, notes), ou des deux. Claude en fait une fiche de révision expliquée, des séries d'exercices corrigés et une partie « Plus loin ». La leçon arrive en <strong>brouillon</strong> : tu la vérifies en aperçu, puis tu la publies.</p>
+        <p class="muted">Pars de <strong>photos</strong> de la leçon (cours, fiche, cahier, dans l'ordre), d'un <strong>texte</strong> (plan de cours, partie du programme, notes), ou des deux. Claude en fait une fiche de révision expliquée, des séries d'exercices corrigés et une partie « Plus loin » ; s'il le faut, il consulte le programme officiel. La création se fait en arrière-plan : tu peux fermer la page. La leçon arrive en <strong>brouillon</strong> : tu la vérifies en aperçu, puis tu la publies.</p>
         <div class="photo-drop">
           <input type="file" id="photo-input" accept="image/*" multiple hidden />
           <button type="button" class="btn add-photos">📷 Ajouter des photos</button>
@@ -98,24 +120,32 @@ export function renderLessonsAdmin(app, state) {
         <div class="thumbs"></div>
         <label class="field"><span>Texte pour Claude <small class="muted">(obligatoire sans photo, sinon facultatif)</small></span>
           <textarea id="notes" rows="6" maxlength="${MAX_TEXT}" placeholder="${escapeHtml(TEXT_EXAMPLE)}"></textarea>
-          <small class="muted text-help">Sans photo : colle le plan ou l'intitulé de la partie du programme, avec le niveau (ex. 5e) — Claude rédige tout le cours. Avec photos : précisions (niveau, date du contrôle, points à travailler). Le copier-coller depuis Word, Google Docs ou un site garde titres, listes et gras.</small></label>
+          <small class="muted text-help">Sans photo : un plan, ou juste la classe et le thème (« Programme de CM2 : les unités de mesure ») — Claude consulte le programme officiel et rédige tout le cours. Avec photos : précisions (niveau, date du contrôle, points à travailler). Le copier-coller depuis Word, Google Docs ou un site garde titres, listes et gras.</small></label>
         <fieldset class="kids"><legend>Pour qui ?</legend>${childChecks("new-kids", CHILDREN.map((c) => c.id))}</fieldset>
-        <div class="actions"><button type="button" class="btn primary generate" disabled>🪄 Générer la leçon</button></div>
+        <div class="actions"><button type="button" class="btn primary generate" disabled>🪄 Créer la leçon</button></div>
         <div class="gen-status" hidden aria-live="polite"></div>
       </section>
 
       <section>
-        <h2 class="section-title">📚 Toutes les leçons <span class="count">${lessons.length}</span></h2>
+        <h2 class="section-title">📚 Toutes les leçons <span class="count lesson-count"></span></h2>
         <p class="muted small">Coche pour quel enfant est chaque leçon. Seules les leçons <strong>publiées</strong> apparaissent sur l'accueil des enfants.</p>
-        <div class="admin-list">${lessons.map(lessonRow).join("")}</div>
+        <div class="admin-list"></div>
       </section>
     </main>`;
 
-  // ───────── photos ─────────
   const input = app.querySelector("#photo-input");
   const thumbs = app.querySelector(".thumbs");
   const genBtn = app.querySelector(".generate");
   const status = app.querySelector(".gen-status");
+  const notesEl = app.querySelector("#notes");
+  const listEl = app.querySelector(".admin-list");
+  const stillHere = () => document.body.contains(listEl);
+
+  // ───────── formulaire ─────────
+  const hasContent = () => photos.length > 0 || notesEl.value.trim().length >= MIN_TEXT;
+  const updateGenerate = () => (genBtn.disabled = busy || !hasContent());
+  notesEl.addEventListener("input", updateGenerate);
+  keepFormattingOnPaste(notesEl);
 
   function drawThumbs() {
     thumbs.innerHTML = photos
@@ -127,13 +157,6 @@ export function renderLessonsAdmin(app, state) {
     app.querySelector(".photo-count").textContent = photos.length ? `${plural(photos.length, "photo")} (${MAX_PHOTOS} maximum)` : `Aucune photo (${MAX_PHOTOS} maximum)`;
     updateGenerate();
   }
-  const notesEl = app.querySelector("#notes");
-  const hasContent = () => photos.length > 0 || notesEl.value.trim().length >= MIN_TEXT;
-  function updateGenerate() {
-    genBtn.disabled = busy || !hasContent();
-  }
-  notesEl.addEventListener("input", updateGenerate);
-  keepFormattingOnPaste(notesEl);
   thumbs.addEventListener("click", (e) => {
     const del = e.target.closest("[data-del]");
     const left = e.target.closest("[data-left]");
@@ -157,124 +180,160 @@ export function renderLessonsAdmin(app, state) {
       drawThumbs();
     }
   });
-
   function showStatus(html) {
     status.hidden = false;
     status.innerHTML = html;
   }
 
-  // ───────── génération ─────────
   genBtn.addEventListener("click", async () => {
     const kids = [...app.querySelectorAll('input[name="new-kids"]:checked')].map((i) => i.value);
     if (!kids.length) return showStatus(`<p class="error">Choisis au moins un enfant.</p>`);
     busy = true;
-    genBtn.disabled = true;
-    const t0 = Date.now();
-    const withPhotos = photos.length > 0;
-    let phase = "envoi";
-    let chars = 0;
-    const tick = () => {
-      const s = Math.round((Date.now() - t0) / 1000);
-      const label =
-        phase === "envoi" ? (withPhotos ? "Envoi des photos…" : "Envoi du texte…") : phase === "reflexion" ? (withPhotos ? "Claude lit les photos et prépare la leçon…" : "Claude prépare le cours…") : phase === "ecriture" ? "Claude écrit la leçon…" : phase === "verif" ? "Vérification des réponses…" : "Enregistrement…";
-      const pct = phase === "ecriture" ? Math.min(95, 10 + (chars / EXPECTED_CHARS) * 85) : phase === "verif" || phase === "save" ? 98 : phase === "reflexion" ? 8 : 3;
-      showStatus(`<div class="gen-progress"><div class="spinner small"></div><strong>${label}</strong> <span class="muted">${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}</span></div>
-        <div class="bar"><span style="width:${pct}%"></span></div>
-        <p class="muted small">Ça prend en général 1 à 4 minutes. Garde cette page ouverte.</p>`);
-    };
-    tick();
-    const timer = setInterval(tick, 1000);
+    updateGenerate();
+    showStatus(`<div class="gen-progress"><div class="spinner small"></div><strong>Envoi de la demande…</strong></div>`);
     try {
-      const res = await parentFetch("/api/generate", {
+      const res = await parentFetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images: photos.map(({ media_type, data }) => ({ media_type, data })), notes: notesEl.value }),
+        body: JSON.stringify({ images: photos.map(({ media_type, data }) => ({ media_type, data })), notes: notesEl.value, children: kids }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new GenerationError(err.error || `http_${res.status}`, errorMessage(err.error, res.status));
-      }
-      phase = "reflexion";
-      const text = await collectText(res.body, (n, p) => {
-        chars = n;
-        phase = p;
-      });
-      phase = "verif";
-      const { lesson, fixes } = repairLesson(extractJson(text));
-      const { errors } = checkLesson(lesson);
-      if (errors.length) throw new GenerationError("invalide", `La leçon générée est incomplète : ${errors.slice(0, 3).join(" ; ")}`);
-      phase = "save";
-      const saveRes = await parentFetch("/api/lessons", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lesson, children: kids }),
-      });
-      const saved = await saveRes.json().catch(() => ({}));
-      if (!saveRes.ok) throw new GenerationError(saved.error || "save", errorMessage(saved.error, saveRes.status, saved.errors));
-      clearInterval(timer);
-      await loadCatalog();
-      renderLessonsAdmin(app, state);
-      showCreated(app, saved, [...fixes, ...(saved.fixes || [])], Math.round((Date.now() - t0) / 1000));
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(errorMessage(out.error, res.status));
+      photos.length = 0;
+      notesEl.value = "";
+      drawThumbs();
+      showStatus(`<p class="ok"><strong>✅ C'est parti !</strong> Claude prépare la leçon en arrière-plan (en général quelques minutes). Tu peux fermer cette page : la leçon apparaîtra ci-dessous, en brouillon.</p>`);
+      jobs = [out.job, ...jobs];
+      drawList();
+      schedulePoll();
     } catch (e) {
-      clearInterval(timer);
+      showStatus(`<p class="error">⚠️ ${escapeHtml(e.message || "Erreur inattendue.")}</p><p class="muted small">Ta demande est toujours là : tu peux réessayer.</p>`);
+    } finally {
       busy = false;
       updateGenerate();
-      showStatus(`<p class="error">⚠️ ${escapeHtml(e.message || "Erreur inattendue.")}</p><p class="muted small">Tes photos sont toujours là : tu peux réessayer.</p>`);
     }
   });
 
-  // ───────── liste des leçons ─────────
-  app.querySelectorAll(".admin-lesson").forEach((row) => {
-    const id = row.dataset.id;
-    const msg = row.querySelector(".al-msg");
-    const say = (t, ok = true) => {
-      msg.textContent = t;
-      msg.className = `al-msg small ${ok ? "ok" : "error"}`;
-    };
-    const put = async (patch) => {
-      const res = await parentFetch(`/api/lessons?id=${encodeURIComponent(id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+  // ───────── liste : tâches en cours + leçons ─────────
+  function drawList() {
+    const lessons = allLessons().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0) || String(b.addedAt).localeCompare(String(a.addedAt)));
+    app.querySelector(".lesson-count").textContent = String(lessons.length);
+    listEl.innerHTML = jobs.map(jobRow).join("") + lessons.map(lessonRow).join("");
+    bindJobs();
+    bindLessons();
+  }
+
+  async function fetchJobs() {
+    try {
+      const res = await fetch("/api/jobs", { headers: { Accept: "application/json" } });
+      if (!res.ok) return;
+      const before = jobs.map((j) => `${j.id}:${j.status}`).join();
+      jobs = (await res.json()).jobs || [];
+      const after = jobs.map((j) => `${j.id}:${j.status}`).join();
+      if (before !== after) {
+        await loadCatalog(); // une tâche terminée = une nouvelle leçon
+        if (stillHere()) drawList();
+      }
+    } catch {
+      /* hors ligne : on réessaiera */
+    }
+  }
+  function schedulePoll() {
+    clearTimeout(pollTimer);
+    if (!stillHere() || !jobs.some((j) => j.status !== "echec")) return;
+    pollTimer = setTimeout(async () => {
+      if (!stillHere()) return;
+      await fetchJobs();
+      schedulePoll();
+    }, lsGet("precepteur:poll-ms", POLL_MS));
+  }
+
+  function bindJobs() {
+    listEl.querySelectorAll("[data-job]").forEach((row) => {
+      const id = row.dataset.job;
+      row.querySelector(".stop-job").addEventListener("click", async (e) => {
+        const job = jobs.find((j) => j.id === id);
+        const question = job?.status === "echec" ? "Supprimer cette demande ?" : "Arrêter la génération de cette leçon et la supprimer ?";
+        if (!window.confirm(question)) return;
+        e.currentTarget.disabled = true;
+        const res = await parentFetch(`/api/jobs?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (!res.ok) {
+          e.currentTarget.disabled = false;
+          return;
+        }
+        jobs = jobs.filter((j) => j.id !== id);
+        drawList();
       });
-      if (!res.ok) throw new Error();
-      await loadCatalog();
-    };
-    row.querySelectorAll(".kids input").forEach((box) =>
-      box.addEventListener("change", async () => {
-        const kids = [...row.querySelectorAll(".kids input:checked")].map((i) => i.value);
+      row.querySelector(".retry-job")?.addEventListener("click", async (e) => {
+        e.currentTarget.disabled = true;
+        const res = await parentFetch(`/api/jobs?id=${encodeURIComponent(id)}&action=retry`, { method: "POST" });
+        const out = await res.json().catch(() => ({}));
+        if (res.ok) jobs = jobs.map((j) => (j.id === id ? out.job : j));
+        drawList();
+        schedulePoll();
+      });
+    });
+  }
+
+  function bindLessons() {
+    listEl.querySelectorAll(".admin-lesson[data-id]").forEach((row) => {
+      const id = row.dataset.id;
+      const msg = row.querySelector(".al-msg");
+      const say = (t, ok = true) => {
+        msg.textContent = t;
+        msg.className = `al-msg small ${ok ? "ok" : "error"}`;
+      };
+      const put = async (patch) => {
+        const res = await parentFetch(`/api/lessons?id=${encodeURIComponent(id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) throw new Error();
+        await loadCatalog();
+      };
+      row.querySelectorAll(".kids input").forEach((box) =>
+        box.addEventListener("change", async () => {
+          const kids = [...row.querySelectorAll(".kids input:checked")].map((i) => i.value);
+          try {
+            await put({ children: kids });
+            say(kids.length ? `Enregistré ✓ — pour ${kids.map((k) => childById(k).name).join(" et ")}` : "Enregistré ✓ — attribuée à personne");
+          } catch {
+            box.checked = !box.checked;
+            say("Échec de l'enregistrement, réessaie.", false);
+          }
+        }),
+      );
+      row.querySelector(".toggle-status").addEventListener("click", async (e) => {
+        e.currentTarget.disabled = true;
+        const lesson = allLessons().find((l) => l.id === id);
         try {
-          await put({ children: kids });
-          say(kids.length ? `Enregistré ✓ — pour ${kids.map((k) => childById(k).name).join(" et ")}` : "Enregistré ✓ — attribuée à personne");
+          await put({ status: statusOf(lesson) === "publiee" ? "brouillon" : "publiee" });
+          drawList();
         } catch {
-          box.checked = !box.checked;
+          e.currentTarget.disabled = false;
           say("Échec de l'enregistrement, réessaie.", false);
         }
-      }),
-    );
-    row.querySelector(".toggle-status").addEventListener("click", async (e) => {
-      e.currentTarget.disabled = true;
-      const lesson = allLessons().find((l) => l.id === id);
-      try {
-        await put({ status: statusOf(lesson) === "publiee" ? "brouillon" : "publiee" });
-        renderLessonsAdmin(app, state);
-      } catch {
-        e.currentTarget.disabled = false;
-        say("Échec de l'enregistrement, réessaie.", false);
-      }
+      });
+      row.querySelector(".delete")?.addEventListener("click", async () => {
+        const lesson = allLessons().find((l) => l.id === id);
+        if (!window.confirm(`Supprimer définitivement « ${lesson.title} » ? Les résultats déjà obtenus restent dans le journal.`)) return;
+        const res = await parentFetch(`/api/lessons?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (!res.ok) return say("Échec de la suppression.", false);
+        await loadCatalog();
+        drawList();
+      });
     });
-    row.querySelector(".delete")?.addEventListener("click", async () => {
-      const lesson = allLessons().find((l) => l.id === id);
-      if (!window.confirm(`Supprimer définitivement « ${lesson.title} » ? Les résultats déjà obtenus restent dans le journal.`)) return;
-      const res = await parentFetch(`/api/lessons?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) return say("Échec de la suppression.", false);
-      await loadCatalog();
-      renderLessonsAdmin(app, state);
-    });
+  }
+
+  drawList();
+  fetchJobs().then(() => {
+    if (stillHere()) drawList();
+    schedulePoll();
   });
 }
 
-function errorMessage(code, status, details) {
+function errorMessage(code, status) {
   switch (code) {
     case "ai_disabled":
       return "La création avec Claude n'est pas activée : ajoute la variable ANTHROPIC_API_KEY dans les réglages du site Netlify, puis redéploie.";
@@ -285,32 +344,8 @@ function errorMessage(code, status, details) {
     case "too_big":
       return "Les photos sont trop lourdes : retire-en quelques-unes.";
     case "rate_limited":
-    case "http_429":
       return "Claude est très sollicité en ce moment : réessaie dans une minute.";
-    case "lecon_invalide":
-      return `La leçon générée est incomplète${details?.length ? ` : ${details.slice(0, 3).join(" ; ")}` : ""}.`;
-    case "ai_error":
-    case "ai_unreachable":
-      return "Claude n'a pas pu traiter la demande. Réessaie dans un instant.";
     default:
       return `Erreur (${code || status}).`;
   }
-}
-
-function showCreated(app, saved, fixes, seconds) {
-  const l = saved.lesson;
-  const warnings = saved.warnings || [];
-  const status = app.querySelector(".gen-status");
-  status.hidden = false;
-  status.innerHTML = `<div class="created">
-    <h3>✅ « ${escapeHtml(l.title)} » est prête (brouillon)</h3>
-    <p class="muted small">${plural(l.course.length, "section")} de fiche · ${plural(l.series.length, "série")} · ${plural(countQuestions(l), "question")} · générée en ${formatDuration(seconds * 1000)}</p>
-    ${fixes.length || warnings.length ? `<details><summary>${plural(fixes.length + warnings.length, "remarque")} de vérification automatique</summary><ul class="small">${[...fixes.map((f) => `🔧 ${escapeHtml(f)}`), ...warnings.map((w) => `⚠️ ${escapeHtml(w)}`)].map((x) => `<li>${x}</li>`).join("")}</ul></details>` : `<p class="small ok">Vérification automatique : aucune anomalie.</p>`}
-    <div class="actions wrap">
-      <a class="btn primary" href="#/apercu/${encodeURIComponent(l.id)}">👁️ Voir l'aperçu</a>
-      <button type="button" class="btn publish-new">✅ Publier maintenant</button>
-    </div>
-  </div>`;
-  status.querySelector(".publish-new").addEventListener("click", () => app.querySelector(`.admin-lesson[data-id="${CSS.escape(l.id)}"] .toggle-status`)?.click());
-  status.scrollIntoView({ block: "nearest" });
 }
