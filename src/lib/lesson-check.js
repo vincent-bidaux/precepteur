@@ -208,3 +208,26 @@ export function checkLesson(l) {
   }
   return { errors, warnings };
 }
+
+/** Texte final d'une réponse Claude : ce qui suit la dernière recherche web éventuelle. */
+export function finalText(content = []) {
+  let start = 0;
+  content.forEach((b, i) => {
+    if (/_tool_result$/.test(b?.type || "")) start = i + 1;
+  });
+  const after = content.slice(start).filter((b) => b?.type === "text");
+  const blocks = after.length ? after : content.filter((b) => b?.type === "text");
+  return blocks.map((b) => b.text).join("");
+}
+
+/** Extrait l'objet JSON d'un texte (tolère des ``` ou du texte autour). */
+export function extractJson(text) {
+  const s = text.indexOf("{");
+  const e = text.lastIndexOf("}");
+  if (s < 0 || e <= s) throw new Error("La réponse de Claude ne contient pas de leçon lisible.");
+  try {
+    return JSON.parse(text.slice(s, e + 1));
+  } catch {
+    throw new Error("La leçon générée est mal formée.");
+  }
+}

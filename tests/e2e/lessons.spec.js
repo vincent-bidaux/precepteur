@@ -16,46 +16,127 @@ test.beforeEach(async ({ page }) => {
   page.on("dialog", (d) => d.accept());
 });
 
-async function createLesson(page, { notes = "", onlyLivia = false } = {}) {
+async function requestLesson(page, { notes = "", photos = 2, onlyLivia = false } = {}) {
   await page.goto("/#/parent/lecons");
   await expect(page.locator(".parent-tabs a.active")).toContainText("Leçons");
   await expect(page.locator(".generate")).toBeDisabled();
-  await page.locator("#photo-input").setInputFiles([photo("page1.png"), photo("page2.png")]);
-  await expect(page.locator(".thumb")).toHaveCount(2);
+  if (photos) {
+    await page.locator("#photo-input").setInputFiles(Array.from({ length: photos }, (_, i) => photo(`page${i + 1}.png`)));
+    await expect(page.locator(".thumb")).toHaveCount(photos);
+  }
   if (notes) await page.locator("#notes").fill(notes);
   if (onlyLivia) await page.locator('.creator .kid-check:has(input[value="aurelius"]) span').click();
   await page.locator(".generate").click();
+  await expect(page.locator(".gen-status")).toContainText("C'est parti");
 }
 
-test("photos → leçon générée par Claude, vérifiée, en brouillon", async ({ page, request }) => {
-  await createLesson(page, { notes: "Leçon de 5e, contrôle vendredi", onlyLivia: true });
-  await expect(page.locator(".created h3")).toContainText(TITLE, { timeout: 30000 });
-  await expect(page.locator(".created")).toContainText("2 séries");
-  // les corrections automatiques sont signalées
-  await page.locator(".created summary").click();
-  await expect(page.locator(".created")).toContainText("corrigé 20 → 14");
-  await expect(page.locator(".created")).toContainText("retirée");
+/** Revient plus tard sur la page (comme un parent qui l'avait fermée) jusqu'à voir la leçon. */
+async function comeBackUntilReady(page) {
+  await expect(async () => {
+    await page.goto("/#/");
+    await page.goto("/#/parent/lecons");
+    await expect(page.locator(".admin-lesson:not(.job)", { hasText: TITLE })).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 20000 });
+}
 
-  // ce que le faux Claude a reçu
+test("photos → demande envoyée, la page peut se fermer, la leçon arrive en brouillon", async ({ page, request }) => {
+  await requestLesson(page, { notes: "Leçon de 5e, contrôle vendredi", onlyLivia: true });
+  // le formulaire est vidé et la leçon apparaît comme « en cours de création »
+  await expect(page.locator(".thumb")).toHaveCount(0);
+  await expect(page.locator("#notes")).toHaveValue("");
+  const job = page.locator(".admin-lesson.job");
+  await expect(job).toContainText("en cours de création");
+  await expect(job).toContainText("2 photos");
+  await expect(job).toContainText("pour Livia");
+  await expect(job.locator(".stop-job")).toContainText("Arrêter la génération et supprimer");
+
+  // ce que Claude a reçu
   const last = await (await request.get("http://localhost:4319/last")).json();
   expect(last.images).toBe(2);
   expect(last.apiKey).toBe("cle-de-test");
   expect(last.text).toContain("contrôle vendredi");
+  expect(last.tools).toEqual(["web_search_20260209", "web_fetch_20260209"]);
 
+  // on quitte la page, on revient plus tard : la leçon est là, vérifiée, en brouillon
+  await page.goto("/#/enfant/livia");
+  await comeBackUntilReady(page);
+  await expect(page.locator(".admin-lesson.job")).toHaveCount(0);
   const row = page.locator(".admin-lesson", { hasText: TITLE });
   await expect(row.locator(".al-status")).toHaveText("Brouillon");
   await expect(row.locator('input[value="livia"]')).toBeChecked();
   await expect(row.locator('input[value="aurelius"]')).not.toBeChecked();
+  await row.locator(".al-notes summary").click();
+  await expect(row.locator(".al-notes")).toContainText("corrigé 20 → 14");
 
   // brouillon : invisible pour les enfants
   await page.goto("/#/enfant/livia");
   await expect(page.locator(".lesson-card", { hasText: TITLE })).toHaveCount(0);
 });
 
+test("la page ouverte se met à jour toute seule quand la leçon est prête", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => localStorage.setItem("precepteur:poll-ms", "500"));
+  await requestLesson(page, { photos: 0, notes: "Programme de CM2 : les unités de mesure" });
+  await expect(page.locator(".admin-lesson.job")).toContainText("unités de mesure");
+  await expect(page.locator(".admin-lesson", { hasText: TITLE })).toBeVisible({ timeout: 15000 });
+  await expect(page.locator(".admin-lesson.job")).toHaveCount(0);
+});
+
+test("sans photo : « Programme de CM2 : les unités de mesure » suffit", async ({ page, request }) => {
+  await page.goto("/#/parent/lecons");
+  const gen = page.locator(".generate");
+  await page.locator("#notes").fill("CM2");
+  await expect(gen).toBeDisabled(); // trop court pour construire une leçon
+  await requestLesson(page, { photos: 0, notes: "Programme de CM2 : les unités de mesure" });
+  const last = await (await request.get("http://localhost:4319/last")).json();
+  expect(last.images).toBe(0);
+  expect(last.text).toContain("Pas de photo");
+  expect(last.text).toContain("Programme de CM2 : les unités de mesure");
+  expect(last.domains).toEqual(["education.gouv.fr", "eduscol.education.fr"]);
+  await comeBackUntilReady(page);
+});
+
+test("« Arrêter la génération et supprimer »", async ({ page }) => {
+  await requestLesson(page, { photos: 1, notes: "LENT — leçon qui ne finit jamais" });
+  const job = page.locator(".admin-lesson.job");
+  await expect(job).toBeVisible();
+  await page.reload();
+  await expect(job).toContainText("en cours de création"); // toujours là après rechargement
+  await job.locator(".stop-job").click();
+  await expect(page.locator(".admin-lesson.job")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".admin-lesson.job")).toHaveCount(0);
+});
+
+test("refus de Claude : échec affiché, « Réessayer » ou supprimer", async ({ page }) => {
+  await requestLesson(page, { photos: 1, notes: "REFUS — photos illisibles" });
+  const job = page.locator(".admin-lesson.job");
+  await expect(async () => {
+    await page.reload();
+    await expect(job).toContainText("refusé", { timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+  await expect(job.locator(".retry-job")).toBeVisible();
+  await job.locator(".retry-job").click();
+  await expect(job).toContainText("en cours de création");
+  await expect(async () => {
+    await page.reload();
+    await expect(job).toContainText("refusé", { timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+  await job.locator(".stop-job").click();
+  await expect(page.locator(".admin-lesson.job")).toHaveCount(0);
+});
+
+test("recherche web en pause : la génération reprend et aboutit", async ({ page, request }) => {
+  await requestLesson(page, { photos: 0, notes: "PAUSE Programme de 5e : la grammaire du verbe" });
+  await comeBackUntilReady(page);
+  const last = await (await request.get("http://localhost:4319/last")).json();
+  expect(last.turns).toBe(2); // demande relancée avec la suite de la conversation
+});
+
 test("aperçu parent : on peut tout parcourir, rien n'est enregistré", async ({ page, request }) => {
-  await createLesson(page);
-  await expect(page.locator(".created")).toBeVisible({ timeout: 30000 });
-  await page.locator(".created a", { hasText: "aperçu" }).click();
+  await requestLesson(page);
+  await comeBackUntilReady(page);
+  await page.locator(".admin-lesson", { hasText: TITLE }).locator("a", { hasText: "Aperçu" }).click();
   await expect(page.locator(".preview-banner")).toContainText("Aperçu parent");
   await expect(page.locator(".callout.definition")).toContainText("Participe passé");
   await expect(page.locator(".liste li")).toHaveCount(3);
@@ -82,19 +163,17 @@ test("aperçu parent : on peut tout parcourir, rien n'est enregistré", async ({
 });
 
 test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => {
-  await createLesson(page);
-  await expect(page.locator(".created")).toBeVisible({ timeout: 30000 });
-  await page.locator(".publish-new").click();
+  await requestLesson(page);
+  await comeBackUntilReady(page);
   const row = page.locator(".admin-lesson", { hasText: TITLE });
+  await row.locator(".toggle-status").click();
   await expect(row.locator(".al-status")).toHaveText("Publiée");
 
-  // publiée pour les deux → « Nouveau » chez chacun
   for (const kid of ["aurelius", "livia"]) {
     await page.goto(`/#/enfant/${kid}`);
     await expect(page.locator("#nouveau .lesson-card", { hasText: TITLE })).toBeVisible();
   }
 
-  // on la retire à Aurelius
   await page.goto("/#/parent/lecons");
   await row.locator('.kid-check:has(input[value="aurelius"]) span').click();
   await expect(row.locator(".al-msg")).toContainText("pour Livia");
@@ -103,7 +182,6 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
   await page.goto("/#/enfant/livia");
   await expect(page.locator(".lesson-card", { hasText: TITLE })).toBeVisible();
 
-  // la leçon intégrée peut aussi être retirée à un enfant
   await page.goto("/#/parent/lecons");
   const builtin = page.locator(".admin-lesson", { hasText: "Les règles de calcul" });
   await expect(builtin.locator(".delete")).toHaveCount(0);
@@ -112,7 +190,6 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
   await page.goto("/#/enfant/livia");
   await expect(page.locator(".lesson-card", { hasText: "Les règles de calcul" })).toHaveCount(0);
 
-  // dépublier puis supprimer
   await page.goto("/#/parent/lecons");
   await row.locator(".toggle-status").click();
   await expect(row.locator(".al-status")).toHaveText("Brouillon");
@@ -120,31 +197,6 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
   await expect(page.locator(".admin-lesson", { hasText: TITLE })).toHaveCount(0);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-});
-
-test("refus de Claude : message clair, les photos restent là", async ({ page }) => {
-  await createLesson(page, { notes: "REFUS" });
-  await expect(page.locator(".gen-status .error")).toContainText("refusé", { timeout: 30000 });
-  await expect(page.locator(".thumb")).toHaveCount(2);
-  await expect(page.locator(".generate")).toBeEnabled();
-});
-
-test("sans photo : leçon générée à partir d'un plan ou d'une partie du programme", async ({ page, request }) => {
-  await page.goto("/#/parent/lecons");
-  const gen = page.locator(".generate");
-  await expect(gen).toBeDisabled();
-  await page.locator("#notes").fill("Français 5e");
-  await expect(gen).toBeDisabled(); // trop court pour construire une leçon
-  const plan = "Français, 5e — L'accord du participe passé\n1. Avec être\n2. Avec avoir\nContrôle lundi.";
-  await page.locator("#notes").fill(plan);
-  await expect(gen).toBeEnabled();
-  await gen.click();
-  await expect(page.locator(".created h3")).toContainText(TITLE, { timeout: 30000 });
-  const last = await (await request.get("http://localhost:4319/last")).json();
-  expect(last.images).toBe(0);
-  expect(last.text).toContain("Pas de photo");
-  expect(last.text).toContain("Contrôle lundi.");
-  await expect(page.locator(".admin-lesson", { hasText: TITLE }).locator(".al-status")).toHaveText("Brouillon");
 });
 
 test("coller depuis un document garde la structure (titres, listes, gras)", async ({ page }) => {

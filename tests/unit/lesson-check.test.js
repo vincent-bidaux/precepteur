@@ -48,3 +48,16 @@ describe("vérification des leçons", () => {
     expect(questionProblem({ type: "nombre", prompt: "?", answer: 3 })).toBeNull();
   });
 });
+
+import { finalText, extractJson } from "../../src/lib/lesson-check.js";
+describe("lecture de la réponse de Claude", () => {
+  it("extrait le JSON même entouré de texte ou de ```", () => {
+    expect(extractJson('```json\n{"a":{"b":1}}\n```')).toEqual({ a: { b: 1 } });
+    expect(() => extractJson("désolé")).toThrow(/lisible/);
+    expect(() => extractJson("{ pas: json }")).toThrow(/mal formée/);
+  });
+  it("prend le texte après la dernière recherche", () => {
+    expect(finalText([{ type: "text", text: "a{" }, { type: "web_fetch_tool_result" }, { type: "text", text: "{}" }])).toBe("{}");
+    expect(finalText([{ type: "text", text: "x" }, { type: "text", text: "y" }])).toBe("xy");
+  });
+});

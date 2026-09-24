@@ -16,7 +16,8 @@ function localApi() {
         const { handleLog } = await import("./netlify/shared/log.js");
         const { handleGrade } = await import("./netlify/shared/grade.js");
         const { handleLessons } = await import("./netlify/shared/lessons.js");
-        const { handleGenerate } = await import("./netlify/shared/generate.js");
+        const { handleJobs } = await import("./netlify/shared/jobs.js");
+        const { anthropicClient } = await import("./netlify/shared/ai.js");
         const chunks = [];
         for await (const c of req) chunks.push(c);
         const request = new Request(new URL(req.url, "http://localhost"), {
@@ -29,19 +30,12 @@ function localApi() {
           "/api/log": () => handleLog(request, openStore()),
           "/api/grade": () => handleGrade(request, { store: openStore() }),
           "/api/lessons": () => handleLessons(request, openStore(), { parentCode: env.PRECEPTEUR_CODE_PARENT }),
-          "/api/generate": () =>
-            handleGenerate(request, {
-              apiKey: env.ANTHROPIC_API_KEY,
-              parentCode: env.PRECEPTEUR_CODE_PARENT,
-              // tests : faux serveur Claude
-              baseUrl: env.PRECEPTEUR_ANTHROPIC_URL || "https://api.anthropic.com",
-            }),
+          "/api/jobs": () => handleJobs(request, openStore(), { client: anthropicClient(env), parentCode: env.PRECEPTEUR_CODE_PARENT }),
         };
         const pathname = new URL(request.url).pathname;
         const response = routes[pathname] ? await routes[pathname]() : new Response("not found", { status: 404 });
         res.statusCode = response.status;
         response.headers.forEach((v, k) => res.setHeader(k, v));
-        // relaie les flux (génération) au fil de l'eau
         if (response.body) for await (const chunk of response.body) res.write(chunk);
         res.end();
       } catch (e) {

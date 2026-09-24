@@ -434,3 +434,12 @@ fieldset.kids legend { font-weight: 700; margin-bottom: 6px; padding: 0; float: 
 /* Étapes d'un exemple : pas de numérotation (un « 1. » brouillerait le calcul) */
 .ex-steps { list-style: none; margin: 6px 0; padding: 0; font-size: 1.05rem; display: grid; gap: 2px; }
 .ex-step .ex-lead { color: var(--muted); font-weight: 800; margin-right: 6px; }
+
+/* ───────── Leçons en cours de création ───────── */
+.admin-lesson.job { border: 2px dashed var(--gold); background: #fffdf5; }
+.admin-lesson.job.failed { border-color: var(--ko); background: #fff8f8; }
+.admin-lesson.job .lc-icon .spinner { margin: 0; }
+.admin-lesson.job .al-actions { margin-top: 8px; }
+.admin-lesson.job p { margin: 8px 0 0; }
+.al-notes { margin-top: 8px; }
+.al-notes ul { margin: 6px 0 0; padding-left: 1.2em; }
