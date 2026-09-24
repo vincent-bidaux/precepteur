@@ -3,6 +3,7 @@
 import { CHILDREN, childById } from "../data/children.js";
 import { allLessons, childrenOf, statusOf, loadCatalog } from "../catalog.js";
 import { prepareImage } from "../lib/images.js";
+import { keepFormattingOnPaste } from "../lib/paste.js";
 import { collectText, extractJson, GenerationError } from "../lib/sse.js";
 import { repairLesson, checkLesson } from "../lib/lesson-check.js";
 import { lsGet, lsSet } from "../lib/storage.js";
@@ -10,6 +11,14 @@ import { escapeHtml, formatDate, formatDuration, plural } from "../lib/format.js
 import { topbar } from "./common.js";
 
 const MAX_PHOTOS = 10;
+const MIN_TEXT = 20; // en dessous, sans photo, il n'y a pas de quoi construire une leçon
+const MAX_TEXT = 12000;
+const TEXT_EXAMPLE = `Ex. sans photo :
+Histoire, 5e — Chapitre « L'émergence des royaumes chrétiens (XIe-XVe s.) »
+1. La société féodale : seigneurs, vassaux, paysans
+2. Le pouvoir royal s'affirme : Philippe Auguste, Saint Louis
+3. L'Église encadre la société
+Contrôle vendredi, insister sur les dates et le vocabulaire.`;
 const K_CODE = "precepteur:parent-code";
 const EXPECTED_CHARS = 60000; // taille typique d'une leçon générée, pour la jauge
 
@@ -80,15 +89,16 @@ export function renderLessonsAdmin(app, state) {
       ${parentTabs("lecons")}
       <section class="card creator" id="creer">
         <h2>✨ Créer une leçon avec Claude</h2>
-        <p class="muted">Prends en photo les pages de la leçon (cours, fiche, cahier), dans l'ordre. Claude en fait une fiche de révision expliquée, des séries d'exercices corrigés et une partie « Plus loin ». La leçon arrive en <strong>brouillon</strong> : tu la vérifies en aperçu, puis tu la publies.</p>
+        <p class="muted">Pars de <strong>photos</strong> de la leçon (cours, fiche, cahier, dans l'ordre), d'un <strong>texte</strong> (plan de cours, partie du programme, notes), ou des deux. Claude en fait une fiche de révision expliquée, des séries d'exercices corrigés et une partie « Plus loin ». La leçon arrive en <strong>brouillon</strong> : tu la vérifies en aperçu, puis tu la publies.</p>
         <div class="photo-drop">
           <input type="file" id="photo-input" accept="image/*" multiple hidden />
           <button type="button" class="btn add-photos">📷 Ajouter des photos</button>
           <span class="muted small photo-count">Aucune photo (${MAX_PHOTOS} maximum)</span>
         </div>
         <div class="thumbs"></div>
-        <label class="field"><span>Précisions pour Claude <small class="muted">(facultatif)</small></span>
-          <textarea id="notes" rows="2" maxlength="2000" placeholder="Ex. : leçon de 5e sur la Révolution française ; insiste sur les dates ; contrôle vendredi."></textarea></label>
+        <label class="field"><span>Texte pour Claude <small class="muted">(obligatoire sans photo, sinon facultatif)</small></span>
+          <textarea id="notes" rows="6" maxlength="${MAX_TEXT}" placeholder="${escapeHtml(TEXT_EXAMPLE)}"></textarea>
+          <small class="muted text-help">Sans photo : colle le plan ou l'intitulé de la partie du programme, avec le niveau (ex. 5e) — Claude rédige tout le cours. Avec photos : précisions (niveau, date du contrôle, points à travailler). Le copier-coller depuis Word, Google Docs ou un site garde titres, listes et gras.</small></label>
         <fieldset class="kids"><legend>Pour qui ?</legend>${childChecks("new-kids", CHILDREN.map((c) => c.id))}</fieldset>
         <div class="actions"><button type="button" class="btn primary generate" disabled>🪄 Générer la leçon</button></div>
         <div class="gen-status" hidden aria-live="polite"></div>
@@ -115,8 +125,15 @@ export function renderLessonsAdmin(app, state) {
       )
       .join("");
     app.querySelector(".photo-count").textContent = photos.length ? `${plural(photos.length, "photo")} (${MAX_PHOTOS} maximum)` : `Aucune photo (${MAX_PHOTOS} maximum)`;
-    genBtn.disabled = busy || !photos.length;
+    updateGenerate();
   }
+  const notesEl = app.querySelector("#notes");
+  const hasContent = () => photos.length > 0 || notesEl.value.trim().length >= MIN_TEXT;
+  function updateGenerate() {
+    genBtn.disabled = busy || !hasContent();
+  }
+  notesEl.addEventListener("input", updateGenerate);
+  keepFormattingOnPaste(notesEl);
   thumbs.addEventListener("click", (e) => {
     const del = e.target.closest("[data-del]");
     const left = e.target.closest("[data-left]");
@@ -153,12 +170,13 @@ export function renderLessonsAdmin(app, state) {
     busy = true;
     genBtn.disabled = true;
     const t0 = Date.now();
+    const withPhotos = photos.length > 0;
     let phase = "envoi";
     let chars = 0;
     const tick = () => {
       const s = Math.round((Date.now() - t0) / 1000);
       const label =
-        phase === "envoi" ? "Envoi des photos…" : phase === "reflexion" ? "Claude lit les photos et prépare la leçon…" : phase === "ecriture" ? "Claude écrit la leçon…" : phase === "verif" ? "Vérification des réponses…" : "Enregistrement…";
+        phase === "envoi" ? (withPhotos ? "Envoi des photos…" : "Envoi du texte…") : phase === "reflexion" ? (withPhotos ? "Claude lit les photos et prépare la leçon…" : "Claude prépare le cours…") : phase === "ecriture" ? "Claude écrit la leçon…" : phase === "verif" ? "Vérification des réponses…" : "Enregistrement…";
       const pct = phase === "ecriture" ? Math.min(95, 10 + (chars / EXPECTED_CHARS) * 85) : phase === "verif" || phase === "save" ? 98 : phase === "reflexion" ? 8 : 3;
       showStatus(`<div class="gen-progress"><div class="spinner small"></div><strong>${label}</strong> <span class="muted">${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}</span></div>
         <div class="bar"><span style="width:${pct}%"></span></div>
@@ -170,7 +188,7 @@ export function renderLessonsAdmin(app, state) {
       const res = await parentFetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images: photos.map(({ media_type, data }) => ({ media_type, data })), notes: app.querySelector("#notes").value }),
+        body: JSON.stringify({ images: photos.map(({ media_type, data }) => ({ media_type, data })), notes: notesEl.value }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -200,7 +218,7 @@ export function renderLessonsAdmin(app, state) {
     } catch (e) {
       clearInterval(timer);
       busy = false;
-      genBtn.disabled = !photos.length;
+      updateGenerate();
       showStatus(`<p class="error">⚠️ ${escapeHtml(e.message || "Erreur inattendue.")}</p><p class="muted small">Tes photos sont toujours là : tu peux réessayer.</p>`);
     }
   });
@@ -262,6 +280,8 @@ function errorMessage(code, status, details) {
       return "La création avec Claude n'est pas activée : ajoute la variable ANTHROPIC_API_KEY dans les réglages du site Netlify, puis redéploie.";
     case "code_parent":
       return "Code parent incorrect.";
+    case "no_content":
+      return "Ajoute au moins une photo, ou un texte d'une ou deux lignes (plan, partie du programme…).";
     case "too_big":
       return "Les photos sont trop lourdes : retire-en quelques-unes.";
     case "rate_limited":

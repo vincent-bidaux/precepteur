@@ -1,13 +1,22 @@
 // Page d'une leçon : fiche de révision, séries d'exercices, « aller plus loin ».
 import { lessonProgress, STATUS_LABEL } from "../lib/stats.js";
 import { escapeHtml, rich, formatDate } from "../lib/format.js";
+import { tryEvaluate } from "../lib/expr.js";
 import { topbar, noteBadge, stars, progressBar, lessonUrl } from "./common.js";
 
 // ───────── Fiche de révision ─────────
+// Chaque étape d'un exemple est précédée de « = » (suite d'un calcul) ou de
+// « → » (raisonnement), jamais d'un numéro qui se confondrait avec le calcul.
+function stepLead(ex, step) {
+  if (/=/.test(step)) return "";
+  const isCalc = tryEvaluate(ex.calc.replace(/^[A-Z] = /, "")) !== null;
+  return `<span class="ex-lead" aria-hidden="true">${isCalc ? "=" : "→"}</span>`;
+}
+
 function exemple(ex, key) {
   return `<div class="exemple" data-ex="${key}">
     <div class="ex-calc">${rich(ex.calc)}</div>
-    <ol class="ex-steps">${ex.steps.map((s, i) => `<li class="ex-step" hidden data-i="${i}">${rich(s)}</li>`).join("")}</ol>
+    <ul class="ex-steps">${ex.steps.map((s, i) => `<li class="ex-step" hidden data-i="${i}">${stepLead(ex, s)}${rich(s)}</li>`).join("")}</ul>
     <button class="btn ghost small ex-next" type="button">Voir l'étape suivante</button>
     ${ex.note ? `<p class="ex-note" hidden>💬 ${rich(ex.note)}</p>` : ""}
   </div>`;
@@ -43,6 +52,8 @@ function block(b, key) {
         .map(([n, v]) => `<button type="button" class="carre" aria-label="${n} au carré"><span>${n}<sup>2</sup></span><b hidden>${v}</b></button>`)
         .join("")}</div><p class="muted small">Touche une case pour vérifier. Teste-toi avant de regarder !</p></div>`;
     case "etapes":
+      // une seule étape : pas de liste numérotée « 1. » qui n'aurait pas de sens
+      if (b.items.length === 1) return `<div class="callout astuce"><strong>${rich(b.items[0].title)}</strong>${b.items[0].text ? `<p>${rich(b.items[0].text)}</p>` : ""}</div>`;
       return `<ol class="priorites">${b.items.map((it) => `<li><strong>${rich(it.title)}</strong>${it.text ? `<span>${rich(it.text)}</span>` : ""}</li>`).join("")}</ol>`;
     default:
       return "";

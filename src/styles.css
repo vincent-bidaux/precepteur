@@ -181,7 +181,6 @@ th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color
 @media (min-width: 700px) { .exemples { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); } }
 .exemple { border: 2px solid var(--line); border-radius: 12px; padding: 12px; background: #fffdf8; }
 .ex-calc { font-family: var(--display); font-weight: 700; font-size: 1.2rem; }
-.ex-steps { margin: 6px 0; padding-left: 1.4em; font-size: 1.05rem; }
 .ex-step { animation: pop 0.25s ease-out; }
 .ex-note { font-size: 0.9rem; color: var(--ink-2); margin: 6px 0 0; }
 @keyframes pop { from { opacity: 0; transform: translateY(4px); } }
@@ -409,3 +408,29 @@ fieldset.kids legend { font-weight: 700; margin-bottom: 6px; padding: 0; float: 
 .al-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn.danger { color: var(--ko); }
 .al-msg { margin: 6px 0 0; min-height: 1em; }
+
+/* ───────── Association « un toucher par paire » ───────── */
+.match-help { margin: 0 0 10px; }
+.match2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.m-col { display: grid; gap: 8px; align-content: start; }
+.m-tile { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 8px 10px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; font-size: 1rem; text-align: left; cursor: pointer; }
+.m-tile:disabled { cursor: default; color: var(--ink); }
+.m-badge { width: 26px; height: 26px; flex: none; border-radius: 50%; border: 2px dashed #cbd5e1; display: grid; place-items: center; font-size: 0.8rem; font-weight: 800; }
+.m-left.active { border-color: var(--ink); background: var(--gold-soft); box-shadow: 0 0 0 2px var(--ink); }
+.m-left.active .m-badge { border-color: var(--ink); border-style: solid; }
+.m-tile.paired { border-color: var(--pc); background: var(--pcs); }
+.m-tile.paired .m-badge { border: 0; background: var(--pc); color: #fff; }
+.m-tile.c0 { --pc: #1d4ed8; --pcs: #dbeafe; }
+.m-tile.c1 { --pc: #b45309; --pcs: #fef3c7; }
+.m-tile.c2 { --pc: #15803d; --pcs: #dcfce7; }
+.m-tile.c3 { --pc: #7c3aed; --pcs: #ede9fe; }
+.m-tile.c4 { --pc: #be123c; --pcs: #ffe4e6; }
+.m-tile.c5 { --pc: #0e7490; --pcs: #cffafe; }
+.m-tile.right { border-color: var(--ok); }
+.m-tile.wrong { border-color: var(--ko); background: var(--ko-soft); }
+.m-tile.right::after { content: "✓"; margin-left: auto; color: var(--ok); font-weight: 800; }
+.m-tile.wrong::after { content: "✗"; margin-left: auto; color: var(--ko); font-weight: 800; }
+
+/* Étapes d'un exemple : pas de numérotation (un « 1. » brouillerait le calcul) */
+.ex-steps { list-style: none; margin: 6px 0; padding: 0; font-size: 1.05rem; display: grid; gap: 2px; }
+.ex-step .ex-lead { color: var(--muted); font-weight: 800; margin-right: 6px; }

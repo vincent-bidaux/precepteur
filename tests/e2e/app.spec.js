@@ -43,7 +43,11 @@ async function answer(page, q, { wrong = false } = {}) {
       break;
     }
     case "associer":
-      for (let i = 0; i < q.pairs.length; i++) await zone.locator(`select[data-i="${i}"]`).selectOption(String(wrong ? (i + 1) % q.pairs.length : i));
+      // un toucher par paire : l'élément surligné passe tout seul au suivant
+      for (let i = 0; i < q.pairs.length; i++) {
+        await expect(zone.locator(`.m-left[data-l="${i}"]`)).toHaveClass(/active/);
+        await zone.locator(`.m-right[data-r="${wrong ? (i + 1) % q.pairs.length : i}"]`).click();
+      }
       break;
     case "ordre": {
       if (wrong) break;
@@ -285,4 +289,40 @@ test("leçon entièrement réussie → rangée dans « Leçons passées » avec 
   await page.goto("/#/parent");
   await expect(page.locator("#dash-livia .dash-table .pill")).toContainText("Réussie");
   await noHorizontalScroll(page);
+});
+
+test("association : un toucher par paire, correction d'un mauvais choix", async ({ page }) => {
+  const s = serie("s1-operations");
+  const q = s.questions.find((x) => x.type === "associer");
+  await page.goto(`/#/enfant/aurelius/lecon/${L}/serie/${s.id}`);
+  await answer(page, s.questions[0]);
+  await page.locator(".feedback .next").click();
+  const z = page.locator(".question");
+  await expect(z.locator("select")).toHaveCount(0);
+  await expect(z.locator('.m-left[data-l="0"]')).toHaveClass(/active/);
+  // erreur : Addition → Produit, puis on corrige en touchant la case reliée
+  await z.locator('.m-right[data-r="2"]').click();
+  await expect(z.locator('.m-right[data-r="2"] .m-badge')).toHaveText("1");
+  await expect(z.locator('.m-left[data-l="1"]')).toHaveClass(/active/);
+  await z.locator('.m-right[data-r="2"]').click(); // délie
+  await expect(z.locator('.m-left[data-l="0"]')).toHaveClass(/active/);
+  await expect(z.locator('.m-right[data-r="2"] .m-badge')).toHaveText("");
+  // valider trop tôt : message
+  await z.locator(".validate").click();
+  await expect(z.locator(".invalid")).toContainText("Associe");
+  for (let i = 0; i < q.pairs.length; i++) await z.locator(`.m-right[data-r="${i}"]`).click();
+  await z.locator(".validate").click();
+  await expect(page.locator(".feedback")).toHaveClass(/verdict-ok/);
+  await expect(z.locator(".m-left.right")).toHaveCount(q.pairs.length);
+});
+
+test("exemples de la fiche : étapes sans numéro", async ({ page }) => {
+  await page.goto(`/#/enfant/livia/lecon/${L}/reviser`);
+  const ex = page.locator(".exemple").filter({ hasText: "2^5" }).or(page.locator(".exemple").nth(2)).first();
+  await ex.locator(".ex-next").click();
+  const first = ex.locator(".ex-step").first();
+  await expect(first).toBeVisible();
+  expect(await first.evaluate((el) => getComputedStyle(el).listStyleType)).toBe("none");
+  expect(await first.evaluate((el) => el.parentElement.tagName)).toBe("UL");
+  await expect(first.locator(".ex-lead")).toHaveText("=");
 });

@@ -1,7 +1,9 @@
 /**
- * Génération d'une leçon par Claude à partir de photos.
+ * Génération d'une leçon par Claude à partir de photos et/ou d'un texte
+ * (plan, partie du programme, notes).
  *
- *   POST /api/generate { images: [{ media_type, data(base64) }], notes }
+ *   POST /api/generate { images?: [{ media_type, data(base64) }], notes }
+ *     (au moins une photo, ou un texte d'au moins MIN_TEXT caractères)
  *     → flux SSE de l'API Claude, relayé tel quel au navigateur, qui
  *       reconstitue le texte (JSON de la leçon), le vérifie puis l'enregistre
  *       via POST /api/lessons.
@@ -21,6 +23,8 @@ import { json } from "./log.js";
 
 export const MODEL = "claude-opus-5";
 export const MAX_IMAGES = 10;
+export const MIN_TEXT = 20;
+export const MAX_TEXT = 12000;
 const TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const MAX_TOTAL_B64 = 24_000_000;
 
@@ -52,7 +56,8 @@ export async function handleGenerate(req, { apiKey, parentCode, baseUrl = "https
 
   const body = await req.json().catch(() => null);
   const images = Array.isArray(body?.images) ? body.images : [];
-  if (!images.length) return json({ error: "no_images" }, 400);
+  const notes = typeof body?.notes === "string" ? body.notes.trim().slice(0, MAX_TEXT) : "";
+  if (!images.length && notes.length < MIN_TEXT) return json({ error: "no_content" }, 400);
   if (images.length > MAX_IMAGES) return json({ error: "too_many_images" }, 400);
   let total = 0;
   for (const img of images) {
@@ -60,7 +65,6 @@ export async function handleGenerate(req, { apiKey, parentCode, baseUrl = "https
     total += img.data.length;
   }
   if (total > MAX_TOTAL_B64) return json({ error: "too_big" }, 413);
-  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 2000) : "";
 
   let upstream;
   try {

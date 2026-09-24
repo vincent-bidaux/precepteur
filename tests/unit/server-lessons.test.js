@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, assert } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -131,6 +131,23 @@ describe("/api/generate", () => {
     const res = await handleGenerate(genReq({ images: [img] }), { apiKey: "k", fetchImpl });
     expect(res.status).toBe(429);
     expect((await res.json()).error).toBe("ai_error");
+  });
+
+  it("texte seul (plan, programme) : accepté, sans image, avec les bonnes consignes", async () => {
+    let body;
+    const fetchImpl = async (url, init) => ((body = JSON.parse(init.body)), new Response("event: ping\ndata: {}\n\n", { status: 200 }));
+    const plan = "Histoire 5e — La société féodale : seigneurs, vassaux, paysans";
+    const res = await handleGenerate(genReq({ notes: plan }), { apiKey: "k", fetchImpl });
+    expect(res.status).toBe(200);
+    const content = body.messages[0].content;
+    expect(content.filter((c) => c.type === "image")).toHaveLength(0);
+    expect(content[0].text).toContain("Pas de photo");
+    expect(content[0].text).toContain(plan);
+    expect(body.system).toContain("c'est toi qui rédiges le cours complet");
+    // trop court, sans photo : refusé avant d'appeler Claude
+    const short = await handleGenerate(genReq({ notes: "Maths" }), { apiKey: "k", fetchImpl: () => assert.fail() });
+    expect(short.status).toBe(400);
+    expect((await short.json()).error).toBe("no_content");
   });
 
   it("les consignes contiennent le format et un exemple complet", () => {

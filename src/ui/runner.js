@@ -26,9 +26,6 @@ function shuffledIndices(n) {
   while (s.every((v, i) => v === i));
   return s;
 }
-const SUPS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
-// Dans un <select>, pas de HTML : 6^2 → 6²
-const supText = (s) => String(s).replace(/\^(\d+)/g, (_, d) => [...d].map((c) => SUPS[c]).join(""));
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 /** Chronomètre qui ne compte que le temps où la page est visible. */
@@ -55,7 +52,7 @@ const MISS = ["Pas tout à fait…", "Raté, mais on apprend !", "Oups !"];
 
 // ───────── rendu des champs de réponse ─────────
 function makeView(q) {
-  if (q.type === "associer") return { right: shuffledIndices(q.pairs.length) };
+  if (q.type === "associer") return { right: shuffledIndices(q.pairs.length), pairing: {}, active: 0 };
   if (q.type === "ordre") return { order: shuffledIndices(q.items.length) };
   return {};
 }
@@ -82,12 +79,7 @@ function inputHtml(q, view) {
         .join("")}</p>`;
     }
     case "associer":
-      return `<div class="match">${q.pairs
-        .map(
-          ([left], i) => `<label class="match-row" data-i="${i}"><span class="match-left">${rich(left)}</span><span class="arrow">→</span>
-            <select data-i="${i}"><option value="">— choisir —</option>${view.right.map((j) => `<option value="${j}">${escapeHtml(supText(q.pairs[j][1]))}</option>`).join("")}</select></label>`,
-        )
-        .join("")}</div>`;
+      return `<p class="muted small match-help">Touche la bonne réponse à droite pour l'élément surligné. Pour corriger, touche une case déjà reliée.</p><div class="match2">${matchHtml(q, view)}</div>`;
     case "ordre":
       return `<ol class="order-list">${orderItems(q, view)}</ol>`;
     case "etapes":
@@ -99,6 +91,57 @@ function inputHtml(q, view) {
     default:
       return "";
   }
+}
+
+// Association « un toucher par paire » : l'élément actif à gauche est surligné ;
+// toucher une réponse à droite les relie (même numéro, même couleur) et passe
+// au suivant non relié. Toucher une case reliée la délie.
+function matchHtml(q, view) {
+  const owner = {}; // réponse de droite → élément de gauche relié
+  for (const [l, r] of Object.entries(view.pairing)) owner[r] = Number(l);
+  const left = q.pairs
+    .map(([txt], i) => {
+      const paired = view.pairing[i] !== undefined;
+      return `<button type="button" class="m-tile m-left ${view.active === i ? "active" : ""} ${paired ? `paired c${i % 6}` : ""}" data-l="${i}" aria-pressed="${view.active === i}">
+        <span class="m-badge">${paired ? i + 1 : ""}</span><span class="m-text">${rich(txt)}</span></button>`;
+    })
+    .join("");
+  const right = view.right
+    .map((j) => {
+      const l = owner[j];
+      return `<button type="button" class="m-tile m-right ${l !== undefined ? `paired c${l % 6}` : ""}" data-r="${j}">
+        <span class="m-badge">${l !== undefined ? l + 1 : ""}</span><span class="m-text">${rich(q.pairs[j][1])}</span></button>`;
+    })
+    .join("");
+  return `<div class="m-col">${left}</div><div class="m-col">${right}</div>`;
+}
+
+function matchTap(q, view, tile) {
+  const n = q.pairs.length;
+  const nextFree = (from) => {
+    for (let k = 0; k < n; k++) {
+      const i = (from + k) % n;
+      if (view.pairing[i] === undefined) return i;
+    }
+    return null;
+  };
+  if (tile.dataset.l !== undefined) {
+    const i = Number(tile.dataset.l);
+    if (view.active === i && view.pairing[i] !== undefined) delete view.pairing[i]; // 2e toucher : délie
+    view.active = i;
+    return;
+  }
+  const j = Number(tile.dataset.r);
+  const holder = Object.keys(view.pairing).find((k) => view.pairing[k] === j);
+  if (holder !== undefined) {
+    // réponse déjà reliée : on la délie et on revient sur son élément
+    delete view.pairing[holder];
+    view.active = Number(holder);
+    return;
+  }
+  if (view.active === null) view.active = nextFree(0);
+  view.pairing[view.active] = j;
+  view.active = nextFree(view.active + 1);
 }
 
 function orderItems(q, view) {
@@ -125,11 +168,8 @@ function readAnswer(q, root, view) {
       return root.querySelector(".answer").value;
     case "trous":
       return [...root.querySelectorAll(".blank")].sort((a, b) => a.dataset.b - b.dataset.b).map((i) => i.value);
-    case "associer": {
-      const out = {};
-      root.querySelectorAll("select").forEach((s) => (out[s.dataset.i] = s.value === "" ? null : Number(s.value)));
-      return out;
-    }
+    case "associer":
+      return Object.fromEntries(q.pairs.map((_, i) => [i, view.pairing[i] ?? null]));
     case "ordre":
       return [...view.order];
     case "etapes":
@@ -303,6 +343,13 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
         });
       }),
     );
+    // association : toucher des cases
+    root.querySelector(".match2")?.addEventListener("click", (e) => {
+      const tile = e.target.closest(".m-tile");
+      if (!tile || validated) return;
+      matchTap(q, view, tile);
+      root.querySelector(".match2").innerHTML = matchHtml(q, view);
+    });
     // clavier mathématique
     root.querySelectorAll(".keypad .key").forEach((k) =>
       k.addEventListener("click", () => {
@@ -375,7 +422,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
         const ai = await gradeWithAI(lesson, series, q, given, child);
         if (ai && typeof ai.score === "number") res = { ...res, score: ai.score, ai: ai.feedback, found: ai.found?.length ? mapLabels(q, ai.found) : res.found };
       }
-      showFeedback(q, given, res, usedHint, run.watch.elapsed - qStart);
+      showFeedback(q, given, res, usedHint, run.watch.elapsed - qStart, view);
     }
     validateBtn.addEventListener("click", validate);
     root.addEventListener("keydown", (e) => {
@@ -394,7 +441,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
     return q.concepts.filter((c) => set.has(norm(c.label))).map((c) => c.label);
   }
 
-  function showFeedback(q, given, res, usedHint, timeMs) {
+  function showFeedback(q, given, res, usedHint, timeMs, view) {
     const max = points(q);
     const got = earned(q, res.score, usedHint);
     const entry = {
@@ -419,7 +466,12 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
     }
     if (q.type === "trous") root.querySelectorAll(".blank").forEach((b) => b.classList.add(res.parts[b.dataset.b] ? "right" : "wrong"));
     if (q.type === "etapes") root.querySelectorAll(".step").forEach((b) => b.classList.add(res.parts[b.dataset.i] ? "right" : "wrong"));
-    if (q.type === "associer") root.querySelectorAll(".match-row").forEach((r) => r.classList.add(res.parts[r.dataset.i] ? "right" : "wrong"));
+    if (q.type === "associer") {
+      view.active = null;
+      root.querySelector(".match2").innerHTML = matchHtml(q, view);
+      root.querySelectorAll(".m-left").forEach((t) => t.classList.add(res.parts[t.dataset.l] ? "right" : "wrong"));
+      root.querySelectorAll(".m-tile").forEach((t) => (t.disabled = true));
+    }
     if (q.type === "nombre" || q.type === "expression") root.querySelector(".answer").classList.add(res.score === 1 ? "right" : "wrong");
     if (q.type === "ordre") root.querySelectorAll(".order-item").forEach((li, pos) => li.classList.add(Number(li.dataset.orig) === pos ? "right" : "wrong"));
 
