@@ -28,7 +28,7 @@ function localApi() {
         const env = process.env;
         const routes = {
           "/api/log": () => handleLog(request, openStore()),
-          "/api/grade": () => handleGrade(request, { store: openStore() }),
+          "/api/grade": () => handleGrade(request, { client: anthropicClient(env), store: openStore() }),
           "/api/lessons": () => handleLessons(request, openStore(), { parentCode: env.PRECEPTEUR_CODE_PARENT }),
           "/api/jobs": () => handleJobs(request, openStore(), { client: anthropicClient(env), parentCode: env.PRECEPTEUR_CODE_PARENT }),
         };

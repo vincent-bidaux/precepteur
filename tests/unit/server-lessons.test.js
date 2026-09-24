@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { handleLessons } from "../../netlify/shared/lessons.js";
-import { validateInput, buildParams, MODEL } from "../../netlify/shared/generate.js";
+import { validateInput, buildParams } from "../../netlify/shared/generate.js";
 import { handleJobs, advanceAll } from "../../netlify/shared/jobs.js";
 import { handleGrade } from "../../netlify/shared/grade.js";
 import { SYSTEM_PROMPT } from "../../netlify/shared/prompt.js";
@@ -36,7 +36,7 @@ describe("/api/lessons", () => {
     const out = await res.json();
     expect(out.lesson.id).toBe("francais-le-participe-passe");
     expect(out.lesson.origin).toBe("claude");
-    expect(out.meta[out.lesson.id]).toEqual({ children: ["livia"], status: "brouillon" });
+    expect(out.meta[out.lesson.id]).toEqual({ children: ["livia"], status: "brouillon", aiGrading: true });
     expect(out.fixes.length).toBeGreaterThan(0);
     const list = await (await handleLessons(req("GET"), store)).json();
     expect(list.lessons.map((l) => l.id)).toEqual(["francais-le-participe-passe"]);
@@ -87,10 +87,24 @@ describe("/api/lessons", () => {
   it("la correction IA retrouve les questions des leçons créées", async () => {
     const { lesson } = await (await handleLessons(req("POST", { lesson: generated }), store)).json();
     let seen;
-    const client = { beta: { messages: { create: async (p) => ((seen = p), { stop_reason: "end_turn", content: [{ type: "text", text: '{"score":1,"feedback":"Bravo","found":[],"missing":[]}' }] }) } } };
-    const r = await handleGrade(new Request("http://x", { method: "POST", body: JSON.stringify({ lessonId: lesson.id, qid: "s2/q1", answer: "avec être, accord avec le sujet" }) }), { client, store });
+    const client = {
+      messages: { create: async (p) => ((seen = p), { stop_reason: "end_turn", usage: { input_tokens: 1000, output_tokens: 200 }, content: [{ type: "text", text: '{"score":1,"feedback":"Bravo","found":[],"missing":[]}' }] }) },
+    };
+    const grade = () =>
+      handleGrade(new Request("http://x", { method: "POST", body: JSON.stringify({ lessonId: lesson.id, qid: "s2/q1", answer: "avec être, accord avec le sujet", child: "livia" }) }), { client, store });
+    const r = await grade();
     expect(r.status).toBe(200);
     expect(seen.messages[0].content).toContain("Explique quand on accorde");
+    await grade();
+    // coûts comptabilisés par leçon et par enfant
+    const costs = (await (await handleLessons(req("GET"), store)).json()).costs;
+    expect(costs.grading[lesson.id].livia.n).toBe(2);
+    expect(costs.grading[lesson.id].livia.usd).toBeCloseTo(2 * (1000 + 200 * 5) / 1e6, 9);
+    // correction IA coupée par le parent : refusée, aucun appel, aucun coût
+    await handleLessons(req("PUT", { aiGrading: false }, { id: lesson.id }), store);
+    seen = null;
+    expect((await grade()).status).toBe(403);
+    expect(seen).toBeNull();
   });
 });
 
@@ -103,18 +117,36 @@ describe("préparation de la demande à Claude", () => {
     expect(validateInput({ images: [{ media_type: "text/html", data: "x" }] }).error).toBe("bad_image");
     expect(validateInput({ images: Array(11).fill(img) }).error).toBe("too_many_images");
     expect(validateInput({ images: [{ media_type: "image/jpeg", data: "A".repeat(6_000_000) }] }).status).toBe(413);
-    expect(validateInput({ notes: "Programme de CM2 : les unités de mesure" })).toEqual({ images: [], notes: "Programme de CM2 : les unités de mesure" });
+    expect(validateInput({ notes: "Programme de CM2 : les unités de mesure" })).toEqual({
+      images: [],
+      notes: "Programme de CM2 : les unités de mesure",
+      model: "claude-sonnet-5",
+      aiGrading: true,
+      size: { length: 3, questions: 40, series: 5 },
+    });
+    const v = validateInput({ notes: "Programme de CM2 : les unités de mesure", model: "gpt-9", aiGrading: false, size: { length: 9, questions: 1000 } });
+    expect(v.model).toBe("claude-sonnet-5"); // modèle inconnu → défaut
+    expect(v.aiGrading).toBe(false);
+    expect(v.size).toEqual({ length: 3, questions: 80, series: 10 });
   });
 
   it("photos + consignes + recherche limitée aux sites officiels", () => {
     const p = buildParams([img, img], "Leçon de 5e");
-    expect(p.model).toBe(MODEL);
+    expect(p.model).toBe("claude-sonnet-5");
+    expect(p.output_config).toEqual({ effort: "high" });
     expect(p.stream).toBeUndefined();
     const content = p.messages[0].content;
     expect(content.filter((c) => c.type === "image")).toHaveLength(2);
     expect(content.at(-1).text).toContain("Leçon de 5e");
     expect(p.tools.map((t) => t.type)).toEqual(["web_search_20260209", "web_fetch_20260209"]);
     expect(p.tools[0].allowed_domains).toEqual(["education.gouv.fr", "eduscol.education.fr"]);
+    expect(content.at(-1).text).toContain("exactement 40 questions au total, réparties en 5 séries");
+    // Haiku 4.5 : outils de recherche de base, pas de réglage d'effort
+    const h = buildParams([], "Programme de CM2 : les unités de mesure", "claude-haiku-4-5", { length: 1, questions: 20 });
+    expect(h.tools.map((t) => t.type)).toEqual(["web_search_20250305", "web_fetch_20250910"]);
+    expect(h.output_config).toBeUndefined();
+    expect(h.messages[0].content[0].text).toContain("« Très courte »");
+    expect(h.messages[0].content[0].text).toContain("exactement 20 questions au total, réparties en 3 séries");
   });
 
   it("texte seul : Claude rédige le cours, en s'appuyant sur le programme officiel si besoin", () => {
@@ -141,7 +173,10 @@ function fakeClient() {
     created: [],
     canceled: [],
     // à définir par le test : (params) => résultat de batch
-    outcome: () => ({ type: "succeeded", message: { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(generated) }] } }),
+    outcome: () => ({
+      type: "succeeded",
+      message: { stop_reason: "end_turn", usage: { input_tokens: 20000, output_tokens: 30000, server_tool_use: { web_search_requests: 2 } }, content: [{ type: "text", text: JSON.stringify(generated) }] },
+    }),
     done: true,
     messages: {
       batches: {
@@ -187,7 +222,7 @@ describe("/api/jobs (génération en tâche de fond)", () => {
     expect(l.title).toBe("L'accord du participe passé");
     expect(l.generatedFrom).toContain("unités de mesure");
     expect(l.checkNotes.join("\n")).toMatch(/corrigé 20 → 14/);
-    expect(lessons.meta[l.id]).toEqual({ children: ["livia"], status: "brouillon" });
+    expect(lessons.meta[l.id]).toEqual({ children: ["livia"], status: "brouillon", aiGrading: true });
   });
 
   it("le texte final est pris après la recherche web", async () => {
@@ -258,6 +293,38 @@ describe("/api/jobs (génération en tâche de fond)", () => {
     await create(client);
     await Promise.all([advanceAll(store, client), advanceAll(store, client), advanceAll(store, client)]);
     expect((await (await handleLessons(req("GET"), store)).json()).lessons).toHaveLength(1);
+  });
+
+  it("modèle choisi, correction IA coupée, coût de création enregistré sur la leçon", async () => {
+    const client = fakeClient();
+    await handleJobs(jreq("POST", { notes: "Programme de CM2 : les unités de mesure", model: "claude-opus-5", aiGrading: false, size: { length: 2, questions: 20 } }), store, { client });
+    const params = client.created[0].params;
+    expect(params.model).toBe("claude-opus-5");
+    expect(params.messages[0].content[0].text).toContain("exactement 20 questions");
+    await advanceAll(store, client);
+    const { lessons, meta } = await (await handleLessons(req("GET"), store)).json();
+    const l = lessons[0];
+    expect(meta[l.id].aiGrading).toBe(false);
+    // Opus 5 en batch : (20 000 × 5 + 30 000 × 25) / 1e6 / 2 + 2 recherches × 0,01 $
+    expect(l.aiCost.model).toBe("claude-opus-5");
+    expect(l.aiCost.creation).toBeCloseTo((20000 * 5 + 30000 * 25) / 1e6 / 2 + 0.02, 9);
+  });
+
+  it("une création ratée est quand même comptée (une seule fois, même après « Réessayer »)", async () => {
+    const client = fakeClient();
+    client.outcome = () => ({ type: "succeeded", message: { stop_reason: "end_turn", usage: { input_tokens: 1_000_000, output_tokens: 0 }, content: [{ type: "text", text: "rien" }] } });
+    const job = await create(client);
+    let [j] = await advanceAll(store, client);
+    expect(j.status).toBe("echec");
+    expect(j.cost).toBeCloseTo(1, 9); // Sonnet 5 : 2 $/M en entrée, moitié prix
+    await advanceAll(store, client); // pas de double comptage
+    let costs = (await (await handleLessons(req("GET"), store)).json()).costs;
+    expect(costs.failed).toBeCloseTo(1, 9);
+    await handleJobs(jreq("POST", undefined, `?id=${job.id}&action=retry`), store, { client });
+    [j] = await advanceAll(store, client);
+    costs = (await (await handleLessons(req("GET"), store)).json()).costs;
+    expect(costs.failed).toBeCloseTo(2, 9);
+    expect(j.cost).toBeCloseTo(1, 9);
   });
 
   it("sans clé : 501 ; code parent exigé pour créer ; la liste reste lisible", async () => {

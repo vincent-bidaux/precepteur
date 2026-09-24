@@ -199,6 +199,67 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
+test("modèle, longueur, nombre de questions, correction IA : tout est réglable et chiffré", async ({ page, request }) => {
+  await page.goto("/#/parent/lecons");
+  // valeurs par défaut
+  await expect(page.locator('input[name="model"][value="claude-sonnet-5"]')).toBeChecked();
+  await expect(page.locator(".len-out")).toContainText("Moyenne");
+  await expect(page.locator(".q-out")).toHaveText("40 questions en 5 séries — ≈ 30 min");
+  await expect(page.locator('.model-cost[data-model="claude-haiku-4-5"]')).toContainText("$ la leçon");
+  // réglages : Haiku, fiche courte, 20 questions, sans correction IA
+  await page.locator('.model-card:has(input[value="claude-haiku-4-5"]) > span').click();
+  await page.locator("#len").fill("2");
+  await expect(page.locator(".len-out")).toContainText("Courte — 2 à 3 sections, ≈ 5 min de lecture");
+  await page.locator("#nq").fill("20");
+  await expect(page.locator(".q-out")).toHaveText("20 questions en 3 séries — ≈ 15 min");
+  await page.locator(".new-ai .ios-track").click();
+  await expect(page.locator(".new-ai input")).not.toBeChecked();
+  await page.locator("#notes").fill("Programme de CM2 : les unités de mesure");
+  await page.locator(".generate").click();
+  await expect(page.locator(".admin-lesson.job")).toContainText("Haiku 4.5 · fiche courte · 20 questions · sans correction IA");
+  const last = await (await request.get("http://localhost:4319/last")).json();
+  expect(last.model).toBe("claude-haiku-4-5");
+  expect(last.tools).toEqual(["web_search_20250305", "web_fetch_20250910"]);
+  expect(last.text).toContain("exactement 20 questions au total, réparties en 3 séries");
+  await comeBackUntilReady(page);
+  const row = page.locator(".admin-lesson:not(.job)", { hasText: TITLE });
+  // Haiku en batch : (20 000 × 1 + 30 000 × 5) / 1e6 / 2 + 1 recherche × 0,01 $ = 0,095 $
+  await expect(row.locator(".al-cost")).toContainText("création 0,10 $ (Haiku 4.5)");
+  await expect(row.locator(".ai-toggle input")).not.toBeChecked();
+});
+
+test("correction IA des réponses libres : coûts suivis, et coupure par le parent", async ({ page, request }) => {
+  const grades = async () => (await (await request.get("http://localhost:4319/grades")).json()).grades;
+  const before = await grades();
+  const answerFree = async () => {
+    await page.goto(`/#/enfant/livia/lecon/maths-regles-de-calcul-1/serie/s7-explique`);
+    await page.locator(".free").fill("La puissance est prioritaire : 4 au carré = 16, donc 3 + 16 = 19.");
+    await page.locator(".validate").click();
+    await expect(page.locator(".feedback .verdict")).toBeVisible();
+  };
+  await answerFree();
+  await expect(page.locator(".ai-feedback")).toContainText("Correction IA de test");
+  expect(await grades()).toBe(before + 1);
+
+  // coûts visibles : brique de la leçon et tableau de bord
+  await page.goto("/#/parent/lecons");
+  const row = page.locator(".admin-lesson", { hasText: "Les règles de calcul" });
+  await expect(row.locator(".al-cost")).toContainText("corrections IA < 0,01 $ (1 réponse)");
+  await page.goto("/#/parent");
+  await expect(page.locator(".costs-card")).toContainText("Les règles de calcul");
+  await expect(page.locator(".costs-card")).toContainText("(1 rép.)");
+  await expect(page.locator("#dash-livia .dash-table")).toContainText("1 rép.");
+
+  // le parent coupe l'IA pour cette leçon : plus aucun appel, correction par mots-clés
+  await page.goto("/#/parent/lecons");
+  await row.locator(".ai-toggle .ios-track").click();
+  await expect(row.locator(".al-msg")).toContainText("désactivée");
+  await answerFree();
+  await expect(page.locator(".ai-feedback")).toHaveCount(0);
+  await expect(page.locator(".feedback .ideas li.ok")).toHaveCount(3);
+  expect(await grades()).toBe(before + 1);
+});
+
 test("coller depuis un document garde la structure (titres, listes, gras)", async ({ page }) => {
   await page.goto("/#/parent/lecons");
   const notes = page.locator("#notes");

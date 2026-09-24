@@ -3,9 +3,9 @@
  * d'un texte (plan, partie du programme, notes). La demande elle-même est
  * envoyée en tâche de fond par netlify/shared/jobs.js (API Batches).
  */
-import { SYSTEM_PROMPT, TOOLS, userPrompt } from "./prompt.js";
-
-export const MODEL = "claude-opus-5";
+import { SYSTEM_PROMPT, toolsFor, userPrompt } from "./prompt.js";
+import { CREATION_MODELS, DEFAULT_CREATION_MODEL } from "../../src/lib/pricing.js";
+import { cleanSize } from "../../src/lib/lesson-size.js";
 export const MAX_IMAGES = 10;
 export const MIN_TEXT = 20;
 export const MAX_TEXT = 12000;
@@ -24,23 +24,26 @@ export function validateInput(body) {
     total += img.data.length;
   }
   if (total > MAX_TOTAL_B64) return { error: "too_big", status: 413 };
-  return { images: images.map(({ media_type, data }) => ({ media_type, data })), notes };
+  const model = CREATION_MODELS.includes(body?.model) ? body.model : DEFAULT_CREATION_MODEL;
+  const aiGrading = body?.aiGrading !== false;
+  return { images: images.map(({ media_type, data }) => ({ media_type, data })), notes, model, aiGrading, size: cleanSize(body?.size) };
 }
 
 /** Paramètres de la requête Messages (sans streaming : elle part dans un batch). */
-export function buildParams(images, notes) {
+export function buildParams(images, notes, model = DEFAULT_CREATION_MODEL, size = {}) {
   return {
-    model: MODEL,
+    model,
     max_tokens: 64000,
-    output_config: { effort: "high" },
+    // Haiku 4.5 n'accepte pas le réglage d'effort ; Sonnet 5 et Opus 5 réfléchissent par défaut
+    ...(model === "claude-haiku-4-5" ? {} : { output_config: { effort: "high" } }),
     system: SYSTEM_PROMPT,
-    tools: TOOLS,
+    tools: toolsFor(model),
     messages: [
       {
         role: "user",
         content: [
           ...images.map((img) => ({ type: "image", source: { type: "base64", media_type: img.media_type, data: img.data } })),
-          { type: "text", text: userPrompt(notes, images.length) },
+          { type: "text", text: userPrompt(notes, images.length, size) },
         ],
       },
     ],

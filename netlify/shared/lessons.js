@@ -12,6 +12,7 @@
 import { CHILD_IDS } from "./children.js";
 import { json } from "./log.js";
 import { parentCodeOk } from "./auth.js";
+import { readCosts } from "./costs.js";
 import { LESSONS } from "../../src/lessons/index.js";
 import { repairLesson, checkLesson } from "../../src/lib/lesson-check.js";
 
@@ -50,6 +51,12 @@ export async function loadLesson(store, id) {
   return (await store.getWithMetadata(`lessons/${id}`, { type: "json" }))?.data ?? null;
 }
 
+/** Correction IA des réponses libres active pour cette leçon ? (réglage parent, sinon valeur de la leçon, sinon oui) */
+export async function aiGradingOn(store, lesson) {
+  const meta = await readMeta(store);
+  return meta[lesson.id]?.aiGrading ?? lesson.aiGrading ?? true;
+}
+
 const cleanChildren = (list) => (Array.isArray(list) ? [...new Set(list.filter((c) => CHILD_IDS.includes(c)))] : null);
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -57,7 +64,7 @@ const today = () => new Date().toISOString().slice(0, 10);
  * Vérifie, répare et enregistre une nouvelle leçon en brouillon.
  * → { lesson, meta, fixes, warnings } ou { errors, fixes } si inutilisable.
  */
-export async function saveNewLesson(store, input, children, extra = {}) {
+export async function saveNewLesson(store, input, children, extra = {}, { aiGrading = true } = {}) {
   const { lesson, fixes } = repairLesson(input);
   const { errors, warnings } = checkLesson(lesson);
   if (errors.length) return { errors, fixes };
@@ -67,7 +74,7 @@ export async function saveNewLesson(store, input, children, extra = {}) {
   const saved = { ...lesson, ...extra, id: finalId, builtin: undefined, origin: "claude", addedAt: today(), createdAt: Date.now(), checkNotes: [...fixes.map((f) => `🔧 ${f}`), ...warnings.map((w) => `⚠️ ${w}`)] };
   await store.setJSON(`lessons/${finalId}`, saved);
   const kids = cleanChildren(children) ?? CHILD_IDS;
-  const meta = await updateMeta(store, (m) => ({ ...m, [finalId]: { children: kids, status: "brouillon" } }));
+  const meta = await updateMeta(store, (m) => ({ ...m, [finalId]: { children: kids, status: "brouillon", aiGrading: aiGrading !== false } }));
   return { lesson: saved, meta, fixes, warnings };
 }
 
@@ -77,8 +84,8 @@ export async function handleLessons(req, store, { parentCode } = {}) {
     const id = url.searchParams.get("id");
 
     if (req.method === "GET") {
-      const [lessons, meta] = await Promise.all([readLessons(store), readMeta(store)]);
-      return json({ lessons, meta });
+      const [lessons, meta, costs] = await Promise.all([readLessons(store), readMeta(store), readCosts(store)]);
+      return json({ lessons, meta, costs });
     }
     if (!parentCodeOk(req, parentCode)) return json({ error: "code_parent" }, 401);
 
@@ -91,7 +98,7 @@ export async function handleLessons(req, store, { parentCode } = {}) {
       } catch {
         return json({ error: "bad_request" }, 400);
       }
-      const out = await saveNewLesson(store, body?.lesson, body?.children);
+      const out = await saveNewLesson(store, body?.lesson, body?.children, {}, { aiGrading: body?.aiGrading });
       if (out.errors) return json({ error: "lecon_invalide", errors: out.errors, fixes: out.fixes }, 422);
       return json(out, 201);
     }
@@ -104,6 +111,10 @@ export async function handleLessons(req, store, { parentCode } = {}) {
         const c = cleanChildren(body.children);
         if (!c) return json({ error: "bad_children" }, 400);
         patch.children = c;
+      }
+      if (body.aiGrading !== undefined) {
+        if (typeof body.aiGrading !== "boolean") return json({ error: "bad_ai_grading" }, 400);
+        patch.aiGrading = body.aiGrading;
       }
       if (body.status !== undefined) {
         if (!STATUSES.includes(body.status)) return json({ error: "bad_status" }, 400);

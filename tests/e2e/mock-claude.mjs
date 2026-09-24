@@ -10,6 +10,7 @@ import lesson from "../fixtures/generated-lesson.js";
 const PORT = Number(process.env.MOCK_CLAUDE_PORT || 4319);
 const batches = new Map();
 let last = null;
+let grades = 0; // nombre de corrections de réponses libres demandées
 let n = 0;
 
 const send = (res, status, body) => {
@@ -33,7 +34,8 @@ function resultOf(b) {
   const req = b.request;
   if (b.canceled) return { type: "canceled" };
   const text = req.params.messages[0].content.find((c) => c.type === "text").text;
-  const message = (content, stop_reason) => ({ id: "msg", type: "message", role: "assistant", model: req.params.model, content, stop_reason });
+  const usage = { input_tokens: 20000, output_tokens: 30000, server_tool_use: { web_search_requests: 1 } };
+  const message = (content, stop_reason) => ({ id: "msg", type: "message", role: "assistant", model: req.params.model, content, stop_reason, usage });
   if (text.includes("REFUS")) return { type: "succeeded", message: message([], "refusal") };
   if (text.includes("PAUSE") && req.params.messages.length === 1)
     return { type: "succeeded", message: message([{ type: "server_tool_use", id: "srvtoolu_1", name: "web_search", input: { query: "programme" } }], "pause_turn") };
@@ -57,6 +59,21 @@ http
     for await (const c of req) raw += c;
     const url = req.url.split("?")[0];
     if (req.method === "GET" && url === "/last") return send(res, 200, last);
+    if (req.method === "GET" && url === "/grades") return send(res, 200, { grades });
+    // correction d'une réponse libre (appel direct, non différé)
+    if (req.method === "POST" && url === "/v1/messages") {
+      const body = JSON.parse(raw);
+      grades++;
+      return send(res, 200, {
+        id: "msg_grade",
+        type: "message",
+        role: "assistant",
+        model: body.model,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 800, output_tokens: 200 },
+        content: [{ type: "text", text: JSON.stringify({ score: 1, feedback: "Correction IA de test : très bonne explication.", found: [], missing: [] }) }],
+      });
+    }
     if (req.method === "POST" && url === "/v1/messages/batches") {
       const body = JSON.parse(raw);
       const r = body.requests[0];

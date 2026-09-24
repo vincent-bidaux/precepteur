@@ -76,12 +76,14 @@ describe("/api/grade", () => {
   it("utilise Claude quand il est configuré et borne le score", async () => {
     let seen;
     const client = {
-      beta: {
-        messages: {
-          create: async (params) => {
-            seen = params;
-            return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ score: 1.4, feedback: "Très bien !", found: ["4^2 = 16"], missing: [] }) }] };
-          },
+      messages: {
+        create: async (params) => {
+          seen = params;
+          return {
+            stop_reason: "end_turn",
+            usage: { input_tokens: 700, output_tokens: 200 },
+            content: [{ type: "text", text: JSON.stringify({ score: 1.4, feedback: "Très bien !", found: ["4^2 = 16"], missing: [] }) }],
+          };
         },
       },
     };
@@ -90,13 +92,15 @@ describe("/api/grade", () => {
     const out = await res.json();
     expect(out.score).toBe(1);
     expect(out.feedback).toBe("Très bien !");
-    expect(seen.model).toBe("claude-opus-5");
-    expect(seen.output_config.format.type).toBe("json_schema");
+    expect(seen.model).toBe("claude-haiku-4-5"); // le moins cher suffit pour corriger une réponse courte
+    expect(seen.output_config).toEqual({ format: expect.objectContaining({ type: "json_schema" }) }); // pas d'effort sur Haiku
+    expect(seen.fallbacks).toBeUndefined();
+    expect(out.cost).toBeCloseTo((700 * 1 + 200 * 5) / 1e6, 9);
     expect(seen.messages[0].content).toContain("car 4^2=16 donc 19");
   });
 
   it("refuse une question inconnue ou non libre", async () => {
-    const client = { beta: { messages: { create: async () => ({}) } } };
+    const client = { messages: { create: async () => ({}) } };
     expect((await handleGrade(body({ ...valid, qid: "s1-operations/q3" }), { client })).status).toBe(404);
     expect((await handleGrade(body({ ...valid, qid: "nope/q1" }), { client })).status).toBe(404);
     expect((await handleGrade(body({ ...valid, answer: "  " }), { client })).status).toBe(400);
