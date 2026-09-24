@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import path from "node:path";
 
 /**
- * En local (npm run dev / npm run preview), sert aussi /api/log et /api/grade
- * avec les mêmes handlers que les fonctions Netlify, sur un stockage fichier
+ * En local (npm run dev / npm run preview), sert aussi /api/* avec les mêmes
+ * handlers que les fonctions Netlify, sur un stockage fichier
  * (.data/) au lieu de Netlify Blobs. Pas besoin de netlify-cli pour tester.
  */
 function localApi() {
@@ -15,19 +15,35 @@ function localApi() {
         const { openStore } = await import("./netlify/shared/db.js");
         const { handleLog } = await import("./netlify/shared/log.js");
         const { handleGrade } = await import("./netlify/shared/grade.js");
+        const { handleLessons } = await import("./netlify/shared/lessons.js");
+        const { handleGenerate } = await import("./netlify/shared/generate.js");
         const chunks = [];
         for await (const c of req) chunks.push(c);
         const request = new Request(new URL(req.url, "http://localhost"), {
           method: req.method,
-          headers: { "content-type": req.headers["content-type"] || "application/json" },
+          headers: Object.fromEntries(Object.entries(req.headers).filter(([k]) => ["content-type", "x-parent-code"].includes(k))),
           body: ["GET", "HEAD"].includes(req.method) ? undefined : Buffer.concat(chunks),
         });
+        const env = process.env;
+        const routes = {
+          "/api/log": () => handleLog(request, openStore()),
+          "/api/grade": () => handleGrade(request, { store: openStore() }),
+          "/api/lessons": () => handleLessons(request, openStore(), { parentCode: env.PRECEPTEUR_CODE_PARENT }),
+          "/api/generate": () =>
+            handleGenerate(request, {
+              apiKey: env.ANTHROPIC_API_KEY,
+              parentCode: env.PRECEPTEUR_CODE_PARENT,
+              // tests : faux serveur Claude
+              baseUrl: env.PRECEPTEUR_ANTHROPIC_URL || "https://api.anthropic.com",
+            }),
+        };
         const pathname = new URL(request.url).pathname;
-        const response =
-          pathname === "/api/log" ? await handleLog(request, openStore()) : pathname === "/api/grade" ? await handleGrade(request) : new Response("not found", { status: 404 });
+        const response = routes[pathname] ? await routes[pathname]() : new Response("not found", { status: 404 });
         res.statusCode = response.status;
         response.headers.forEach((v, k) => res.setHeader(k, v));
-        res.end(Buffer.from(await response.arrayBuffer()));
+        // relaie les flux (génération) au fil de l'eau
+        if (response.body) for await (const chunk of response.body) res.write(chunk);
+        res.end();
       } catch (e) {
         res.statusCode = 500;
         res.end(String(e));

@@ -6,3 +6,6 @@ export const CHILDREN = [
 ];
 
 export const childById = (id) => CHILDREN.find((c) => c.id === id);
+
+// « Enfant » fictif de l'aperçu parent : rien n'est enregistré dans le journal.
+export const PREVIEW_CHILD = { id: "apercu", name: "Aperçu parent", color: "#475569", soft: "#e2e8f0", emblem: "👁️", motto: "", preview: true };

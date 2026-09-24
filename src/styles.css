@@ -162,6 +162,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .callout p { margin: 4px 0 0; }
 .callout.retenir { background: var(--gold-soft); border-color: var(--gold); }
 .callout.piege { background: var(--ko-soft); border-color: var(--ko); }
+.callout.definition { background: #ede9fe; border-color: #7c3aed; }
+.liste { margin: 8px 0 12px; padding-left: 1.3em; display: grid; gap: 4px; }
 .callout.astuce { background: #e0f2fe; border-color: #0284c7; }
 .table-wrap { overflow-x: auto; margin: 12px 0; -webkit-overflow-scrolling: touch; }
 table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
@@ -364,3 +366,46 @@ ul.compact, ol.compact { margin: 4px 0 8px; padding-left: 1.3em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ───────── Espace parents : onglets, création de leçons ───────── */
+.parent-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: #ece5d6; padding: 6px; border-radius: 16px; margin: 4px 0 16px; }
+.parent-tabs a { text-align: center; text-decoration: none; font-weight: 800; padding: 10px; border-radius: 12px; color: var(--ink-2); }
+.parent-tabs a.active { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+.preview-banner { background: #1e293b; color: #fff; text-align: center; font-weight: 700; font-size: 0.88rem; padding: 6px 12px; }
+.section-title { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.creator { border-top: 5px solid var(--gold); }
+.photo-drop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.thumbs:empty { display: none; }
+.thumb { position: relative; margin: 0; border-radius: 10px; overflow: hidden; border: 2px solid var(--line); background: #fff; aspect-ratio: 3 / 4; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb figcaption { position: absolute; left: 6px; top: 6px; background: var(--ink); color: #fff; font-weight: 800; font-size: 0.8rem; border-radius: 999px; min-width: 22px; height: 22px; display: grid; place-items: center; }
+.thumb-btns { position: absolute; right: 4px; top: 4px; display: flex; gap: 4px; }
+.thumb-btns button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgb(255 255 255 / 0.92); font-weight: 800; cursor: pointer; box-shadow: var(--shadow); }
+.field { display: grid; gap: 6px; margin: 10px 0; font-weight: 700; }
+.field textarea { font-size: 1rem; font-weight: 400; }
+fieldset.kids { border: 0; padding: 0; margin: 10px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+fieldset.kids legend { font-weight: 700; margin-bottom: 6px; padding: 0; float: left; width: 100%; }
+.kid-check { display: inline-flex; }
+.kid-check input { position: absolute; opacity: 0; pointer-events: none; }
+.kid-check span { border: 2px solid var(--line); border-radius: 999px; padding: 6px 14px; font-weight: 800; cursor: pointer; min-height: 40px; display: inline-flex; align-items: center; background: #fff; }
+.kid-check input:checked + span { border-color: var(--c); background: var(--cs); color: var(--c); }
+.kid-check input:focus-visible + span { outline: 3px solid var(--gold); outline-offset: 2px; }
+.gen-status { margin-top: 14px; }
+.gen-progress { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.gen-status .bar span { background: var(--gold); }
+.error { color: var(--ko); font-weight: 700; }
+.ok { color: var(--ok); }
+.created { background: var(--ok-soft); border-radius: 12px; padding: 14px; }
+.created h3 { margin-bottom: 4px; }
+.created ul { margin: 6px 0; padding-left: 1.2em; }
+.admin-list { display: grid; gap: 10px; }
+.admin-lesson { margin: 0; padding: 14px; }
+.al-head { display: flex; gap: 12px; align-items: center; }
+.al-title { flex: 1; display: grid; min-width: 0; }
+.al-controls { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.al-controls fieldset.kids { margin: 0; }
+.al-controls legend { font-weight: 400; }
+.al-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.danger { color: var(--ko); }
+.al-msg { margin: 6px 0 0; min-height: 1em; }

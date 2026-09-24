@@ -1,11 +1,12 @@
 // Tableau de bord parent : temps passé, notes, points faibles, réponses libres.
 // Ouvert sans mot de passe pour le moment (voir README pour le protéger).
 import { CHILDREN } from "../data/children.js";
-import { lessonsFor, lessonById, findQuestion } from "../lessons/index.js";
+import { lessonsFor, lessonById, findQuestion } from "../catalog.js";
 import { lessonProgress, childOverview, dailyActivity, weakQuestions, levelOf, STATUS_LABEL } from "../lib/stats.js";
 import { escapeHtml, rich, formatDate, formatDuration, formatNote } from "../lib/format.js";
 import { topbar, noteBadge } from "./common.js";
 import { refresh } from "../app.js";
+import { parentTabs } from "./lessons-admin.js";
 
 const SELF = { tout: "😎 « j'avais tout »", partie: "🤔 « en partie »", rien: "😅 « pas vraiment »" };
 const PAGE_LABEL = { reviser: "a révisé la fiche", entrainer: "a regardé les séries", "plus-loin": "a lu « Aller plus loin »", lecon: "a ouvert la leçon", accueil: "était sur l'accueil", serie: "a commencé une série sans la finir" };
@@ -145,6 +146,7 @@ export function renderDashboard(app, state) {
   app.innerHTML = `
     ${topbar({ back: "#/", backLabel: "Accueil", title: "Espace parents" })}
     <main class="page dashboard">
+      ${parentTabs("suivi")}
       <header class="dash-head">
         <div><h1>Tableau de bord</h1><p class="muted small">${state.online ? `Données à jour (${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}), tous appareils confondus.` : "⚠️ Serveur injoignable : seules les données de cet appareil sont affichées."}</p></div>
         <button type="button" class="btn ghost small reload">↻ Actualiser</button>

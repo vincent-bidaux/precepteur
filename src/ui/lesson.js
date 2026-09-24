@@ -1,7 +1,7 @@
 // Page d'une leçon : fiche de révision, séries d'exercices, « aller plus loin ».
 import { lessonProgress, STATUS_LABEL } from "../lib/stats.js";
 import { escapeHtml, rich, formatDate } from "../lib/format.js";
-import { topbar, noteBadge, stars, progressBar } from "./common.js";
+import { topbar, noteBadge, stars, progressBar, lessonUrl } from "./common.js";
 
 // ───────── Fiche de révision ─────────
 function exemple(ex, key) {
@@ -23,6 +23,10 @@ function block(b, key) {
       return `<div class="callout retenir"><strong>📌 À retenir</strong><p>${rich(b.text)}</p></div>`;
     case "piege":
       return `<div class="callout piege"><strong>⚠️ Piège</strong><p>${rich(b.text)}</p></div>`;
+    case "definition":
+      return `<div class="callout definition"><strong>📘 ${rich(b.term)}</strong><p>${rich(b.text)}</p></div>`;
+    case "liste":
+      return `<ul class="liste">${(b.items || []).map((it) => `<li>${rich(it)}</li>`).join("")}</ul>`;
     case "astuce":
       return `<div class="callout astuce"><strong>💡 Astuce</strong><p>${rich(b.text)}</p></div>`;
     case "table":
@@ -60,7 +64,7 @@ function courseTab(lesson, child) {
       )
       .join("")}
     ${lesson.manuel?.length ? `<section class="card"><h2>📚 Dans ton manuel</h2><ul>${lesson.manuel.map((m) => `<li>${rich(m)}</li>`).join("")}</ul></section>` : ""}
-    <div class="cta-row"><a class="btn big" href="#/enfant/${child.id}/lecon/${lesson.id}/entrainer">J'ai révisé, je m'entraîne →</a></div>`;
+    <div class="cta-row"><a class="btn big" href="${lessonUrl(child, lesson, "entrainer")}">J'ai révisé, je m'entraîne →</a></div>`;
 }
 
 // ───────── Séries ─────────
@@ -75,7 +79,7 @@ function seriesTab(lesson, child, p) {
         .map((s, i) => {
           const sm = p.series[s.id];
           const nb = s.questions.length;
-          return `<a class="series-card ${sm.attempts ? "done" : ""}" href="#/enfant/${child.id}/lecon/${lesson.id}/serie/${s.id}" data-series="${s.id}">
+          return `<a class="series-card ${sm.attempts ? "done" : ""}" href="${lessonUrl(child, lesson, `serie/${s.id}`)}" data-series="${s.id}">
             <span class="series-num">${i + 1}</span>
             <span class="series-body"><strong>${rich(s.title)}</strong><small class="muted">${rich(s.intro)}</small>
               <small class="muted">${nb} questions${sm.attempts ? ` · ${sm.attempts} essai${sm.attempts > 1 ? "s" : ""} · dernier ${formatDate(sm.lastTs)}` : ""}</small></span>
@@ -115,7 +119,7 @@ function beyondTab(lesson) {
 export function renderLesson(app, { child, lesson, tab, state }) {
   const p = lessonProgress(lesson, state.records, child.id);
   const current = tab || (p.status === "nouveau" ? "reviser" : "entrainer");
-  const base = `#/enfant/${child.id}/lecon/${lesson.id}`;
+  const base = lessonUrl(child, lesson);
   const tabs = [
     ["reviser", "📖 Réviser"],
     ["entrainer", "✏️ S'entraîner"],
@@ -123,7 +127,8 @@ export function renderLesson(app, { child, lesson, tab, state }) {
   ];
 
   app.innerHTML = `
-    ${topbar({ back: `#/enfant/${child.id}`, backLabel: child.name })}
+    ${topbar({ back: child.preview ? "#/parent/lecons" : `#/enfant/${child.id}`, backLabel: child.preview ? "Leçons" : child.name })}
+    ${child.preview ? `<div class="preview-banner">👁️ Aperçu parent — rien n'est enregistré. ${escapeHtml(lesson.title)}</div>` : ""}
     <main class="page">
       <header class="lesson-head">
         <div class="lc-icon big">${lesson.icon}</div>
