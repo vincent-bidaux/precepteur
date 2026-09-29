@@ -20,6 +20,44 @@ async function noHorizontalScroll(page) {
 }
 
 /** Répond juste (ou faux si wrong=true) à la question affichée, d'après les données de la leçon. */
+/**
+ * Glisse une étiquette et la dépose au-dessus d'une autre — au doigt (vrais
+ * évènements tactiles) sur le projet mobile, à la souris sur ordinateur.
+ */
+async function dragOnto(page, from, onto) {
+  const a = await from.boundingBox();
+  const b = await onto.boundingBox();
+  const x = a.x + a.width / 2;
+  const y0 = a.y + a.height / 2;
+  const y1 = b.y + (b.y < a.y ? 6 : b.height - 6); // un peu au-delà du milieu de la cible
+  const steps = 12;
+  if (test.info().project.name === "mobile") {
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+    await touch("touchStart", y0);
+    for (let i = 1; i <= steps; i++) await touch("touchMove", y0 + ((y1 - y0) * i) / steps);
+    await touch("touchEnd");
+  } else {
+    await page.mouse.move(x, y0);
+    await page.mouse.down();
+    await page.mouse.move(x, y1, { steps });
+    await page.mouse.up();
+  }
+}
+
+/** Remet la liste dans l'ordre en glissant chaque étiquette à sa place. */
+async function sortByDragging(page, zone) {
+  const n = await zone.locator(".order-item").count();
+  for (let i = 0; i < n; i++) {
+    const order = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
+    const pos = order.indexOf(i);
+    if (pos === i) continue;
+    await dragOnto(page, zone.locator(`.order-item[data-orig="${i}"]`), zone.locator(".order-item").nth(i));
+  }
+  const order = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
+  expect(order).toEqual([...Array(n).keys()]);
+}
+
 async function answer(page, q, { wrong = false } = {}) {
   const zone = page.locator(".question");
   switch (q.type) {
@@ -50,15 +88,7 @@ async function answer(page, q, { wrong = false } = {}) {
       }
       break;
     case "ordre": {
-      if (wrong) break;
-      // tri à bulles avec les boutons ↑
-      for (let pass = 0; pass < q.items.length; pass++) {
-        const order = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
-        const pos = order.findIndex((v, i) => i > 0 && order[i - 1] > v);
-        if (pos < 0) break;
-        await zone.locator(`.order-btns .up[data-pos="${pos}"]`).click();
-        pass = -1;
-      }
+      if (!wrong) await sortByDragging(page, zone);
       break;
     }
     case "etapes": {
@@ -325,4 +355,34 @@ test("exemples de la fiche : étapes sans numéro", async ({ page }) => {
   expect(await first.evaluate((el) => getComputedStyle(el).listStyleType)).toBe("none");
   expect(await first.evaluate((el) => el.parentElement.tagName)).toBe("UL");
   await expect(first.locator(".ex-lead")).toHaveText("=");
+});
+
+test("remettre dans l'ordre : glisser-déposer (doigt ou souris) et clavier", async ({ page }) => {
+  const s = serie("s6-defis");
+  const q = s.questions.find((x) => x.type === "ordre");
+  await page.goto(`/#/enfant/aurelius/lecon/${L}/serie/${s.id}`);
+  const zone = page.locator(".question");
+  await expect(zone.locator(".order-btns, .order-list button")).toHaveCount(0); // plus de flèches
+  await expect(zone.locator(".order-help")).toContainText("Fais glisser");
+  // un glisser : l'étiquette change de place et les numéros suivent
+  const before = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
+  await dragOnto(page, zone.locator(".order-item").nth(3), zone.locator(".order-item").nth(0));
+  const after = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
+  expect(after).toEqual([before[3], before[0], before[1], before[2]]);
+  await expect(zone.locator(".order-pos")).toHaveText(["1", "2", "3", "4"]);
+  // au clavier : l'étiquette 1 descend d'un cran
+  await zone.locator(".order-item").nth(0).focus();
+  await page.keyboard.press("ArrowDown");
+  const kb = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
+  expect(kb).toEqual([after[1], after[0], after[2], after[3]]);
+  await expect(zone.locator(".order-item").nth(1)).toBeFocused();
+  // tout remettre en ordre puis valider
+  await sortByDragging(page, zone);
+  await zone.locator(".validate").click();
+  await expect(page.locator(".feedback")).toHaveClass(/verdict-ok/);
+  await expect(zone.locator(".order-item.right")).toHaveCount(q.items.length);
+  // après correction, on ne peut plus rien déplacer
+  const locked = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
+  await dragOnto(page, zone.locator(".order-item").nth(3), zone.locator(".order-item").nth(0));
+  expect(await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)))).toEqual(locked);
 });

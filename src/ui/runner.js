@@ -9,6 +9,7 @@ import { seriesSummary } from "../lib/stats.js";
 import { aiGradingOf } from "../catalog.js";
 import { topbar, progressBar, noteBadge, stars, lessonUrl } from "./common.js";
 import { confetti } from "./fx.js";
+import { makeSortable } from "./sortable.js";
 
 // ───────── utilitaires ─────────
 function shuffle(arr) {
@@ -82,7 +83,7 @@ function inputHtml(q, view) {
     case "associer":
       return `<p class="muted small match-help">Touche la bonne réponse à droite pour l'élément surligné. Pour corriger, touche une case déjà reliée.</p><div class="match2">${matchHtml(q, view)}</div>`;
     case "ordre":
-      return `<ol class="order-list">${orderItems(q, view)}</ol>`;
+      return `<p class="muted small order-help">Fais glisser les étiquettes pour les remettre dans le bon ordre (au clavier : flèches ↑ ↓).</p><ol class="order-list">${orderItems(q, view)}</ol>`;
     case "etapes":
       return `<div class="steps">${q.steps
         .map((s, i) => `<label class="step-row"><span>${rich(s.label)}</span><input class="step" data-i="${i}" type="text" inputmode="decimal" autocomplete="off" /></label>`)
@@ -148,8 +149,7 @@ function matchTap(q, view, tile) {
 function orderItems(q, view) {
   return view.order
     .map(
-      (orig, pos) => `<li class="order-item" data-orig="${orig}"><span class="order-pos">${pos + 1}</span><span class="order-text">${rich(q.items[orig])}</span>
-        <span class="order-btns"><button type="button" class="key small up" data-pos="${pos}" aria-label="Monter" ${pos === 0 ? "disabled" : ""}>↑</button><button type="button" class="key small down" data-pos="${pos}" aria-label="Descendre" ${pos === view.order.length - 1 ? "disabled" : ""}>↓</button></span></li>`,
+      (orig, pos) => `<li class="order-item" data-orig="${orig}" tabindex="0" aria-roledescription="étiquette déplaçable"><span class="order-pos">${pos + 1}</span><span class="order-text">${rich(q.items[orig])}</span><span class="order-grip" aria-hidden="true">⠿</span></li>`,
     )
     .join("");
 }
@@ -367,19 +367,17 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
         input.focus();
       }),
     );
-    // ordre : monter / descendre
-    const bindOrder = () =>
-      root.querySelectorAll(".order-btns .key").forEach((b) =>
-        b.addEventListener("click", () => {
-          if (validated) return;
-          const pos = Number(b.dataset.pos);
-          const to = b.classList.contains("up") ? pos - 1 : pos + 1;
-          [view.order[pos], view.order[to]] = [view.order[to], view.order[pos]];
-          root.querySelector(".order-list").innerHTML = orderItems(q, view);
-          bindOrder();
-        }),
-      );
-    bindOrder();
+    // ordre : glisser-déposer
+    const orderList = root.querySelector(".order-list");
+    if (orderList)
+      makeSortable(orderList, {
+        isLocked: () => validated,
+        onChange: () => {
+          const items = [...orderList.querySelectorAll(".order-item")];
+          view.order = items.map((li) => Number(li.dataset.orig));
+          items.forEach((li, i) => (li.querySelector(".order-pos").textContent = String(i + 1)));
+        },
+      });
     // compteur de mots
     const ta = root.querySelector(".free");
     if (ta) ta.addEventListener("input", () => {

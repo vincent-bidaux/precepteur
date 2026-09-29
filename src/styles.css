@@ -246,12 +246,17 @@ input.wrong, .wrong > select { border-color: var(--ko); background: var(--ko-sof
 .match-row select { font-size: 1rem; padding: 8px 10px; min-height: 44px; }
 .arrow { color: var(--muted); }
 .order-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-.order-item { display: flex; align-items: center; gap: 10px; border: 2px solid var(--line); border-radius: 12px; padding: 8px 10px; background: #fff; }
+.order-help { margin: 0 0 10px; }
+.order-item { display: flex; align-items: center; gap: 10px; border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; min-height: 52px; background: #fff; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; transition: box-shadow 0.15s, border-color 0.15s; }
+.order-item:hover { border-color: #cbd5e1; }
+.order-item.dragging { position: relative; z-index: 5; cursor: grabbing; border-color: var(--child); background: var(--child-soft); box-shadow: 0 10px 24px rgb(30 41 59 / 0.22); transition: none; }
+.order-list.sorting .order-item:not(.dragging) { transition: none; }
+.order-grip { color: #94a3b8; font-size: 1.3rem; line-height: 1; padding: 0 2px; }
 .order-item.right { border-color: var(--ok); background: var(--ok-soft); }
 .order-item.wrong { border-color: var(--ko); background: var(--ko-soft); }
 .order-pos { width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font-weight: 800; flex: none; }
 .order-text { flex: 1; font-weight: 700; }
-.order-btns { display: flex; gap: 4px; }
+.order-item.right, .order-item.wrong { cursor: default; }
 .steps { display: grid; gap: 8px; }
 .step-row { display: grid; grid-template-columns: 1fr 130px; gap: 10px; align-items: center; font-weight: 700; font-size: 1.05rem; }
 .step-row input { font-weight: 800; text-align: center; }
