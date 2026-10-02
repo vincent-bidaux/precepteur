@@ -273,3 +273,16 @@ export function subjectBreakdown(items) {
     .map((r) => ({ ...r, avg: avg(r.notes), avgReprise: avg(r.reprises), completion: r.total ? r.done / r.total : 0 }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
+
+/**
+ * Complète le tableau par matière avec toutes les matières enseignées
+ * (même sans leçon), dans l'ordre du programme ; les matières hors liste
+ * (« autre ») viennent à la fin.
+ */
+export function withAllSubjects(rows, subjects) {
+  const empty = (subject) => ({ subject, label: subject.label, count: 0, nouveau: 0, enCours: 0, reussies: 0, archivees: 0, avg: null, avgReprise: null, completion: 0, lessons: [], done: 0, total: 0 });
+  const byId = new Map(rows.map((r) => [r.subject.id === "autre" ? `autre:${r.label}` : r.subject.id, r]));
+  const out = subjects.map((s) => byId.get(s.id) || empty(s));
+  for (const [k, r] of byId) if (!subjects.some((s) => s.id === k)) out.push(r);
+  return out;
+}

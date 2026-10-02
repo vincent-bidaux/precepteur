@@ -3,7 +3,8 @@
 //   #/                                    accueil (dernier onglet enfant)
 //   #/enfant/<id>                         accueil, onglet de l'enfant
 //   #/enfant/<id>/lecon/<lecon>[/<onglet>] une leçon (reviser | entrainer | plus-loin)
-//   #/enfant/<id>/lecon/<lecon>/serie/<s>  une série d'exercices
+//   #/enfant/<id>/lecon/<lecon>/serie/<s>  un test (série d'exercices), à faire ou à refaire en entier
+//   #/enfant/<id>/lecon/<lecon>/serie/<s>/erreurs  refaire les questions mal répondues de ce test
 //   #/enfant/<id>/lecon/<lecon>/reprise/erreurs|tout  refaire les questions ratées / toute la leçon
 //   #/parent                              tableau de bord parent (suivi)
 //   #/parent/lecons                       gestion des leçons (création avec Claude)
@@ -77,7 +78,7 @@ function setChildColors(child) {
   document.documentElement.style.setProperty("--child-soft", child.soft);
 }
 
-/** rest = [] | [onglet] | ["serie", id] | ["reprise", "erreurs" | "tout"] */
+/** rest = [] | [onglet] | ["serie", id] | ["serie", id, "erreurs"] | ["reprise", "erreurs" | "tout"] */
 function openLesson(child, lesson, rest) {
   if (rest[0] === "reprise") {
     const all = rest[1] === "tout";
@@ -89,6 +90,12 @@ function openLesson(child, lesson, rest) {
   if (rest[0] === "serie") {
     const series = lesson.series.find((s) => s.id === rest[1]);
     if (!series) return notFound();
+    if (rest[2] === "erreurs") {
+      // seulement les questions mal répondues de ce test
+      const items = wrongQuestions(lesson, state.records, child.id).filter((x) => x.series.id === series.id);
+      if (!items.length) return renderLesson(app, { child, lesson, tab: "entrainer", state });
+      return renderRunner(app, { child, lesson, series, state, items, mode: "retry" });
+    }
     return renderRunner(app, { child, lesson, series, state });
   }
   const tab = ["reviser", "entrainer", "plus-loin"].includes(rest[0]) ? rest[0] : null;

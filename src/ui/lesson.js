@@ -82,37 +82,42 @@ function courseTab(lesson, child) {
 
 // ───────── Séries ─────────
 function seriesTab(lesson, child, p, records) {
-  const wrong = wrongQuestions(lesson, records, child.id).length;
+  const wrongList = wrongQuestions(lesson, records, child.id);
+  const wrong = wrongList.length;
+  const wrongBySeries = {};
+  for (const w of wrongList) wrongBySeries[w.series.id] = (wrongBySeries[w.series.id] || 0) + 1;
   return `
     <section class="card overall">
       <div class="two-notes">
         <div class="note-box"><span class="note-label">📌 Note initiale</span>${noteBadge(p.note, { size: "big" })}
-          <small class="muted">Ta première tentative de chaque série. C'est elle qui compte dans ta moyenne : concentre-toi dès la première fois !</small></div>
+          <small class="muted">Ta première tentative de chaque test. C'est elle qui compte dans ta moyenne : concentre-toi dès la première fois !</small></div>
         <div class="note-box"><span class="note-label">🔁 Note après reprise</span>${p.hasReprise ? noteBadge(p.reprise, { size: "big" }) : noteBadge(null, { size: "big" })}
           <small class="muted">Ton meilleur résultat sur chaque question, en refaisant tes erreurs autant de fois que tu veux.</small></div>
       </div>
-      ${p.complete ? "" : `<p class="muted small">Fais toutes les séries pour valider la leçon (${p.done}/${p.total}).</p>`}
-      <div class="actions wrap redo-actions">
-        ${wrong ? `<a class="btn primary redo-wrong" href="${lessonUrl(child, lesson, "reprise/erreurs")}">🎯 Refaire les questions mal répondues (${wrong})</a>` : p.done ? `<span class="pill good">✨ Aucune question ratée en ce moment</span>` : ""}
-        ${p.complete ? `<a class="btn ghost redo-all" href="${lessonUrl(child, lesson, "reprise/tout")}">🔄 Refaire la leçon en entier</a>` : ""}
-      </div>
+      <p class="muted small">${p.complete ? "Leçon terminée." : `Fais tous les tests pour valider la leçon (${p.done}/${p.total}).`} Chaque test a ses boutons <strong>🔄 Refaire</strong> et <strong>🎯 Refaire les questions mal répondues</strong>${wrong ? ` (${wrong} à reprendre en tout)` : ""}.</p>
     </section>
     <div class="series-list">
       ${lesson.series
         .map((s, i) => {
           const sm = p.series[s.id];
           const nb = s.questions.length;
-          const improved = sm.attempts && sm.reprise !== null && sm.reprise !== sm.initial;
-          return `<a class="series-card ${sm.attempts ? "done" : ""}" href="${lessonUrl(child, lesson, `serie/${s.id}`)}" data-series="${s.id}">
+          const href = lessonUrl(child, lesson, `serie/${s.id}`);
+          const misses = wrongBySeries[s.id] || 0;
+          return `<article class="series-card ${sm.attempts ? "done" : ""}" data-series="${s.id}">
+            <a class="sc-link" href="${href}" aria-label="${escapeHtml(s.title)}"></a>
             <span class="series-num">${i + 1}</span>
             <span class="series-body"><strong>${rich(s.title)}</strong><small class="muted">${rich(s.intro)}</small>
-              <small class="muted">${nb} questions${sm.attempts ? ` · dernier essai ${formatDate(sm.lastTs)}` : ""}</small></span>
-            <span class="series-end">${
+              <small class="muted">${nb} questions${sm.attempts ? ` · ${sm.attempts} essai${sm.attempts > 1 ? "s" : ""}, le dernier ${formatDate(sm.lastTs)}` : ""}</small></span>
+            ${
               sm.attempts
-                ? `${stars(sm.initial)}<span class="series-notes">${noteBadge(sm.initial)}${improved ? `<small class="muted">après reprise</small>${noteBadge(sm.reprise)}` : ""}</span><span class="btn ghost small">Refaire</span>`
-                : `<span class="btn small">Go !</span>`
-            }</span>
-          </a>`;
+                ? `<span class="series-end">${stars(sm.initial)}<span class="series-notes"><small class="muted">📌 initiale</small>${noteBadge(sm.initial)}<small class="muted">🔁 après reprise</small>${sm.attempts > 1 || sm.reprise !== sm.initial ? noteBadge(sm.reprise) : noteBadge(null)}</span></span>
+                  <div class="series-actions">
+                    <a class="btn small redo-test" href="${href}">🔄 Refaire le test</a>
+                    ${misses ? `<a class="btn primary small redo-wrong" href="${href}/erreurs">🎯 Refaire les questions mal répondues (${misses})</a>` : `<span class="pill good no-wrong">✨ Aucune question ratée</span>`}
+                  </div>`
+                : `<span class="series-end"><a class="btn small" href="${href}">Go !</a></span>`
+            }
+          </article>`;
         })
         .join("")}
     </div>`;

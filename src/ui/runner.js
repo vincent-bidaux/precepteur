@@ -292,7 +292,7 @@ async function gradeWithAI(lesson, series, q, text, child) {
 // ───────── la série ─────────
 /**
  * items : questions à poser, [{ series, q }] — par défaut toutes celles de la série.
- * mode  : "normal" (série depuis sa carte), "retry" (questions ratées), "redo" (leçon entière).
+ * mode  : "normal" (test en entier), "retry" (questions mal répondues), "redo" (leçon entière).
  */
 export function renderRunner(app, { child, lesson, series, state, items, mode = "normal" }) {
   const qs = items || series.questions.map((q) => ({ series, q }));
@@ -555,12 +555,14 @@ export function renderRunner(app, { child, lesson, series, state, items, mode = 
           <p class="note-kind ${firstTime ? "initial" : "reprise"}">${
             firstTime
               ? "📌 C'est ta <strong>note initiale</strong> pour cette série : c'est elle qui compte dans ta moyenne."
-              : `🔁 Cette tentative améliore ta <strong>note après reprise</strong> : ${after.reprise !== null ? `<strong>${formatNote(after.reprise)}/20</strong> pour la leçon` : "—"} (ta note initiale ne change pas).`
+              : multi
+                ? `🔁 Cette tentative améliore ta <strong>note après reprise</strong> : ${after.reprise !== null ? `<strong>${formatNote(after.reprise)}/20</strong> pour la leçon` : "—"} (ta note initiale ne change pas).`
+                : `🔁 Cette tentative améliore ta <strong>note après reprise</strong> pour ce test : ${after.series[series.id]?.reprise != null ? `<strong>${formatNote(after.series[series.id].reprise)}/20</strong>` : "—"} (note initiale : ${after.series[series.id]?.initial != null ? `${formatNote(after.series[series.id].initial)}/20` : "—"}, elle ne change pas).`
           }</p>
           <div class="actions wrap">
-            ${misses.length ? `<button type="button" class="btn primary retry">🔁 Refaire mes ${misses.length} erreur${misses.length > 1 ? "s" : ""}</button>` : ""}
+            ${misses.length ? `<button type="button" class="btn primary retry">🎯 Refaire les ${misses.length} question${misses.length > 1 ? "s" : ""} mal répondue${misses.length > 1 ? "s" : ""}</button>` : ""}
             ${nextSeries && mode !== "retry" ? `<a class="btn ${misses.length ? "" : "primary"}" href="${lessonUrl(child, lesson, `serie/${nextSeries.id}`)}">Série suivante →</a>` : ""}
-            <button type="button" class="btn ghost again">${multi ? "Recommencer" : "Recommencer la série"}</button>
+            <button type="button" class="btn ghost again">${multi ? "Recommencer" : "🔄 Refaire le test en entier"}</button>
             <a class="btn ghost" href="${backUrl}">Retour à la leçon</a>
           </div>
         </section>
@@ -573,7 +575,7 @@ export function renderRunner(app, { child, lesson, series, state, items, mode = 
       </main>`;
     if (n20 >= 16) confetti();
     app.querySelector(".retry")?.addEventListener("click", () =>
-      renderRunner(app, { child, lesson, series: { id: "reprise", title: "Mes questions ratées" }, state, items: misses, mode: "retry" }),
+      renderRunner(app, { child, lesson, series: multi ? { id: "reprise", title: "Mes questions ratées" } : series, state, items: misses, mode: "retry" }),
     );
     app.querySelector(".again").addEventListener("click", () =>
       go(lessonUrl(child, lesson, multi ? `reprise/${mode === "redo" ? "tout" : "erreurs"}` : `serie/${series.id}`)),

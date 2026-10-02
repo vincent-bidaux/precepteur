@@ -4,8 +4,8 @@
 import { CHILDREN, childById } from "../data/children.js";
 import { lessonsFor, lessonById, findQuestion, allLessons, lessonCosts, catalog, childrenOf, childLevel, loadCatalog } from "../catalog.js";
 import { MODELS, formatUsd } from "../lib/pricing.js";
-import { lessonProgress, childOverview, dailyActivity, weakQuestions, levelOf as xpLevelOf, STATUS_LABEL, subjectBreakdown, isArchived, reviewsOf, attemptNote } from "../lib/stats.js";
-import { LEVELS, programUrl } from "../data/subjects.js";
+import { lessonProgress, childOverview, dailyActivity, weakQuestions, levelOf as xpLevelOf, STATUS_LABEL, subjectBreakdown, withAllSubjects, isArchived, reviewsOf, attemptNote } from "../lib/stats.js";
+import { LEVELS, programUrl, taughtSubjects } from "../data/subjects.js";
 import { escapeHtml, rich, formatDate, formatDuration, formatNote, plural } from "../lib/format.js";
 import { lsGet, lsSet } from "../lib/storage.js";
 import { record } from "../lib/store.js";
@@ -186,8 +186,9 @@ function subjectsTable(records, child = null) {
       items.push({ lesson: l, p: lessonProgress(l, records, k.id), archived: isArchived(records, k.id, l.id), kid: k.id });
     if (!child && !kids.some((k) => childrenOf(l).includes(k.id))) items.push({ lesson: l, p: lessonProgress(l, records, "_"), archived: false });
   }
-  const rows = subjectBreakdown(items);
-  if (!rows.length) return `<p class="muted small">Aucune leçon pour l'instant.</p>`;
+  // toutes les matières enseignées aux classes des enfants, même sans leçon
+  const levels = kids.map((k) => childLevel(k.id));
+  const rows = withAllSubjects(subjectBreakdown(items), taughtSubjects(levels.every(Boolean) ? levels : []));
   const cost = (r) => {
     const uniq = [...new Map(r.lessons.map((l) => [l.id, l])).values()];
     return uniq.reduce((s, l) => {
@@ -206,7 +207,7 @@ function subjectsTable(records, child = null) {
       .join("<br>");
   return `<div class="table-wrap"><table class="dash-table subjects-table"><thead><tr><th>Matière</th><th>Leçons</th><th>Note initiale</th><th>Après reprise</th><th>Coût IA</th><th>Programme officiel</th></tr></thead><tbody>${rows
     .map(
-      (r) => `<tr><td class="nowrap"><span class="subj-icon">${r.subject.icon}</span> ${escapeHtml(r.label)}</td><td>${new Set(r.lessons.map((l) => l.id)).size}</td>
+      (r) => `<tr class="${r.count ? "" : "no-lesson"}"><td class="nowrap"><span class="subj-icon">${r.subject.icon}</span> ${escapeHtml(r.label)}${r.subject.option ? ` <small class="muted">(option)</small>` : ""}</td><td>${new Set(r.lessons.map((l) => l.id)).size}</td>
         <td>${noteBadge(r.avg)}</td><td>${noteBadge(r.avgReprise)}</td><td>${formatUsd(cost(r))}</td><td class="small">${programLinks(r)}</td></tr>`,
     )
     .join("")}</tbody></table></div>`;
@@ -233,7 +234,7 @@ function lessonsTable(child, records, page) {
       })
       .join("");
     return `<tbody class="lesson-rows" data-lesson="${escapeHtml(l.id)}"><tr class="main">
-      <td><button type="button" class="toggle-row" aria-expanded="false" title="Voir le détail des séries">▸</button>
+      <td><button type="button" class="toggle-row" aria-expanded="false" aria-label="Voir le détail des tests" title="Voir le détail des tests">▸</button>
         <span class="lr-title">${subjectTag(l, { short: true })}<strong>${escapeHtml(l.title)}</strong>
         <small class="muted"><span class="pill status status-${pr.status}">${STATUS_LABEL[pr.status]}</span> · ${pr.done}/${pr.total} séries${isArchived(records, child.id, l.id) ? " · archivée" : ""}</small></span></td>
       <td>${noteBadge(pr.note)}</td><td>${pr.hasReprise ? noteBadge(pr.reprise) : "–"}</td><td>${formatDuration(pr.timeMs)}</td><td>${pr.lastTs ? formatDate(pr.lastTs) : "–"}</td>
@@ -260,7 +261,7 @@ function journalItems(child, records) {
       const where = l ? `<small class="muted">(${escapeHtml(l.icon)} ${escapeHtml(l.title)})</small>` : "";
       if (r.type === "attempt") {
         const s = l?.series.find((z) => z.id === r.seriesId);
-        const what = r.mode === "retry" ? "a refait ses questions ratées" : r.mode === "redo" ? "a refait toute la leçon" : `a fait « ${escapeHtml(s?.title || r.seriesId)} »`;
+        const what = r.mode === "retry" ? (s ? `a refait les questions mal répondues de « ${escapeHtml(s.title)} »` : "a refait ses questions ratées") : r.mode === "redo" ? "a refait toute la leçon" : `a fait « ${escapeHtml(s?.title || r.seriesId)} »`;
         return `<li><span class="j-date">${formatDate(r.ts)}</span><span>✏️ ${what} ${where}</span><span class="j-end">${noteBadge(r.note20)} <small class="muted">${formatDuration(r.durationMs)}</small></span></li>`;
       }
       if (r.type === "archive") return `<li><span class="j-date">${formatDate(r.ts)}</span><span>🗄️ ${r.archived ? "a archivé" : "a ressorti des archives"} ${where}</span><span></span></li>`;
@@ -286,12 +287,15 @@ function freeItems(child, records) {
   return list.map(({ r, a, q, decision }) => {
     const pending = a.claimed && !decision;
     const l = lessonById(r.lessonId);
+    const test = l?.series.find((z) => z.id === String(a.qid).split("/")[0]);
+    const kind = r.mode === "retry" ? " · reprise des erreurs" : r.mode === "redo" ? " · leçon refaite" : "";
     return `<article class="free-answer ${pending ? "claimed" : ""}" data-attempt="${escapeHtml(r.id)}" data-qid="${escapeHtml(a.qid)}">
+      <p class="fa-lesson">${l ? `${subjectTag(l, { short: true })} <a href="#/apercu/${encodeURIComponent(l.id)}">${escapeHtml(l.title)}</a>` : `<span class="muted">Leçon supprimée</span>`}${test ? `<span class="fa-test">✏️ ${escapeHtml(test.title)}</span>` : ""}<span class="muted small">${formatDate(r.ts)}${kind}</span></p>
       ${a.claimed ? `<p class="claim-flag">${pending ? "✋ <strong>Points réclamés par l'enfant — à vérifier</strong>" : decision === "valide" ? "✅ Points réclamés — validés" : "❌ Points réclamés — refusés"} <small class="muted">(score obtenu à la correction : ${formatNote(a.origScore ?? 0)}/${a.max})</small></p>` : ""}
       <header><strong>${rich(q.prompt)}</strong><span>${formatNote(a.claimed && decision === "refuse" ? a.origScore ?? 0 : a.score)}/${a.max}</span></header>
       <blockquote>${escapeHtml(a.given)}</blockquote>
       <details class="small"><summary>Réponse modèle</summary><p>${rich(q.model)}</p></details>
-      <p class="muted small">${formatDate(r.ts)}${l ? ` · ${escapeHtml(l.icon)} ${escapeHtml(l.title)}` : ""}${a.hint ? " · coup de pouce utilisé" : ""}</p>
+      ${a.hint ? `<p class="muted small">Coup de pouce utilisé</p>` : ""}
       ${a.ai ? `<p class="small"><strong>Correction IA :</strong> ${escapeHtml(a.ai)}</p>` : ""}
       ${a.claimed ? `<div class="actions review-actions">${decision !== "valide" ? `<button type="button" class="btn small primary" data-decision="valide">✅ Valider les points</button>` : ""}${decision !== "refuse" ? `<button type="button" class="btn ghost small danger" data-decision="refuse">❌ Refuser</button>` : ""}</div>` : ""}
     </article>`;

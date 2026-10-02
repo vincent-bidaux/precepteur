@@ -11,6 +11,12 @@ test("captures", async ({ page }, info) => {
   await page.locator(".free").fill("En bref : la puissance passe avant : 4 au carré = 16, puis 3 + 16 = 19.");
   await page.locator(".validate").click();
   await page.locator(".feedback .claim").click();
+  for (let i = 1; i < 6; i++) {
+    await page.locator(".feedback .next").click();
+    if (!(await page.locator(".free").count())) break;
+    await page.locator(".free").fill("En bref : je pense que la règle des priorités dit de commencer par les parenthèses.");
+    await page.locator(".validate").click();
+  }
   await page.screenshot({ path: `${dir}/${p}-runner-claim.png`, fullPage: true });
   for (const [name, url] of [["home", "/#/enfant/aurelius"], ["lecon", "/#/enfant/aurelius/lecon/maths-regles-de-calcul-1/entrainer"], ["suivi", "/#/parent"], ["lecons", "/#/parent/lecons"]]) {
     await page.goto(url);
