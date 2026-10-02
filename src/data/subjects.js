@@ -3,23 +3,24 @@
 // cycle correspondant au niveau (programmes, attendus et repères annuels).
 
 export const SUBJECTS = [
-  { id: "mathematiques", label: "Mathématiques", short: "Maths", icon: "📐", aliases: ["maths", "math", "mathematique", "calcul", "geometrie", "numeration"] },
-  { id: "francais", label: "Français", icon: "📖", aliases: ["grammaire", "orthographe", "conjugaison", "lecture", "litterature", "vocabulaire", "expression ecrite"] },
-  { id: "histoire-geographie", label: "Histoire-Géographie", short: "Histoire-Géo", icon: "🏛️", aliases: ["histoire", "geographie", "histoire geo", "histoire-geo"] },
-  { id: "emc", label: "Enseignement moral et civique", short: "EMC", icon: "⚖️", aliases: ["education civique", "enseignement moral", "morale"] },
-  { id: "anglais", label: "Anglais", icon: "🇬🇧", aliases: ["english"] },
-  { id: "espagnol", label: "Espagnol", icon: "🇪🇸", aliases: ["espanol"] },
-  { id: "allemand", label: "Allemand", icon: "🇩🇪", aliases: ["deutsch"] },
-  { id: "italien", label: "Italien", icon: "🇮🇹", aliases: [] },
-  { id: "svt", label: "Sciences de la vie et de la Terre", short: "SVT", icon: "🌱", aliases: ["sciences de la vie", "biologie", "geologie"] },
-  { id: "physique-chimie", label: "Physique-Chimie", icon: "⚗️", aliases: ["physique", "chimie"] },
-  { id: "sciences", label: "Sciences et technologie", short: "Sciences", icon: "🔬", aliases: ["sciences et technologie", "science"] },
-  { id: "technologie", label: "Technologie", short: "Techno", icon: "⚙️", aliases: ["techno"] },
-  { id: "arts-plastiques", label: "Arts plastiques", icon: "🎨", aliases: ["arts", "dessin"] },
-  { id: "musique", label: "Éducation musicale", short: "Musique", icon: "🎵", aliases: ["education musicale"] },
-  { id: "eps", label: "Éducation physique et sportive", short: "EPS", icon: "⚽", aliases: ["sport", "education physique"] },
-  { id: "latin", label: "Latin", icon: "🏺", aliases: ["langues et cultures de l'antiquite", "grec"] },
-  { id: "autre", label: "Autre", icon: "📘", aliases: [] },
+  { id: "mathematiques", label: "Mathématiques", short: "Maths", icon: "📐", aliases: ["maths", "math", "mathematique", "calcul", "geometrie", "numeration"], cycles: [2, 3, 4] },
+  { id: "francais", label: "Français", icon: "📖", aliases: ["grammaire", "orthographe", "conjugaison", "lecture", "litterature", "vocabulaire", "expression ecrite"], cycles: [2, 3, 4] },
+  { id: "histoire-geographie", label: "Histoire-Géographie", short: "Histoire-Géo", icon: "🏛️", aliases: ["histoire", "geographie", "histoire geo", "histoire-geo"], cycles: [3, 4] },
+  { id: "emc", label: "Enseignement moral et civique", short: "EMC", icon: "⚖️", aliases: ["education civique", "enseignement moral", "morale"], cycles: [2, 3, 4] },
+  { id: "anglais", label: "Anglais", icon: "🇬🇧", aliases: ["english"], cycles: [2, 3, 4] },
+  { id: "espagnol", label: "Espagnol", icon: "🇪🇸", aliases: ["espanol"], cycles: [4], option: true },
+  { id: "allemand", label: "Allemand", icon: "🇩🇪", aliases: ["deutsch"], cycles: [4], option: true },
+  { id: "italien", label: "Italien", icon: "🇮🇹", aliases: [], cycles: [4], option: true },
+  { id: "svt", label: "Sciences de la vie et de la Terre", short: "SVT", icon: "🌱", aliases: ["sciences de la vie", "biologie", "geologie"], cycles: [4] },
+  { id: "physique-chimie", label: "Physique-Chimie", icon: "⚗️", aliases: ["physique", "chimie"], cycles: [4] },
+  { id: "questionner-le-monde", label: "Questionner le monde", icon: "🌍", aliases: ["decouverte du monde", "qlm"], cycles: [2] },
+  { id: "sciences", label: "Sciences et technologie", short: "Sciences", icon: "🔬", aliases: ["sciences et technologie", "science"], cycles: [3] },
+  { id: "technologie", label: "Technologie", short: "Techno", icon: "⚙️", aliases: ["techno"], cycles: [4] },
+  { id: "arts-plastiques", label: "Arts plastiques", icon: "🎨", aliases: ["arts", "dessin"], cycles: [2, 3, 4] },
+  { id: "musique", label: "Éducation musicale", short: "Musique", icon: "🎵", aliases: ["education musicale"], cycles: [2, 3, 4] },
+  { id: "eps", label: "Éducation physique et sportive", short: "EPS", icon: "⚽", aliases: ["sport", "education physique"], cycles: [2, 3, 4] },
+  { id: "latin", label: "Latin", icon: "🏺", aliases: ["langues et cultures de l'antiquite", "grec"], cycles: [4], option: true },
+  { id: "autre", label: "Autre", icon: "📘", aliases: [], cycles: [] },
 ];
 
 const norm = (s) =>
@@ -68,6 +69,16 @@ const CYCLE_PAGES = {
 
 /** Page officielle des programmes pour ce niveau (null si niveau inconnu). */
 export const programUrl = (level) => CYCLE_PAGES[cycleOf(level)] || null;
+
+/**
+ * Matières enseignées pour ces classes (programmes officiels : cycle 2 CP-CE2,
+ * cycle 3 CM1-6e, cycle 4 5e-3e), dans l'ordre du catalogue. Sans classe
+ * connue : toutes les matières. Les options (LV2, latin) sont marquées.
+ */
+export function taughtSubjects(levels = []) {
+  const cycles = new Set(levels.map(cycleOf).filter(Boolean));
+  return SUBJECTS.filter((s) => s.id !== "autre" && (!cycles.size || s.cycles.some((c) => cycles.has(c))));
+}
 
 /** « 📐 Mathématiques · 5e » */
 export const subjectLine = (subject, level, { short = false } = {}) =>

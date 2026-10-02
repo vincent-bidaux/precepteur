@@ -11,17 +11,18 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
 ## Ce que fait l'application
 
 - **Accueil** : un onglet par enfant. Pour chacun : 📚 *Mes matières*
-  (leçons, statut, avancement et moyenne par matière), ✨ *Nouveau* (leçons
+  (leçons, statut, avancement et moyenne par matière ; les autres matières
+  enseignées dans sa classe sont listées, un toucher prépare une demande), ✨ *Nouveau* (leçons
   jamais ouvertes), 📌 *À suivre*, 🗄️ *Leçons archivées* (bouton « Archiver »
   sur chaque leçon, « Ressortir » pour la remettre), filtre par matière et tri
   par date, et 📬 *Demander une leçon* aux parents. Chaque leçon affiche sa
   matière (une icône par matière) et sa classe (« 📐 Mathématiques · 5e »).
   Jours d'affilée, XP et niveaux (Discipulus → Philosophus) pour la motivation.
-- **Deux notes par leçon** : la *note initiale* (première tentative de chaque
-  série — c'est elle qui compte dans les moyennes : il faut être concentré dès
-  la première fois) et la *note après reprise*, qu'on améliore autant qu'on
-  veut avec « 🎯 Refaire les questions mal répondues » ou « 🔄 Refaire la
-  leçon en entier ».
+- **Deux notes par test** (et pour la leçon) : la *note initiale* (première
+  tentative — c'est elle qui compte dans les moyennes : il faut être concentré
+  dès la première fois) et la *note après reprise*, qu'on améliore autant
+  qu'on veut avec les boutons de chaque test : « 🔄 Refaire le test » et
+  « 🎯 Refaire les questions mal répondues ».
 - **Leçon** en trois onglets :
   - 📖 *Réviser* : la fiche de cours complète, exemples dévoilés étape par
     étape, pièges, astuces, table des carrés à retourner, exercices du manuel.

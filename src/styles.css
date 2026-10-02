@@ -197,7 +197,7 @@ th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color
 .overall { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .overall p { margin: 0; font-size: 0.9rem; }
 .series-list { display: grid; gap: 10px; }
-.series-card { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; text-decoration: none; box-shadow: var(--shadow); }
+.series-card { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; text-decoration: none; box-shadow: var(--shadow); }
 .series-card.done { border-left: 6px solid var(--ok); }
 .series-num { width: 40px; height: 40px; border-radius: 12px; background: var(--child-soft); color: var(--child); display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 1.2rem; }
 .series-body { display: grid; gap: 2px; }
@@ -494,7 +494,12 @@ fieldset.models legend { font-weight: 700; margin-bottom: 6px; padding: 0; }
 .note-label { font-weight: 800; }
 .note-box small { font-size: 0.8rem; }
 .redo-actions { justify-content: flex-start; }
-.series-notes { display: grid; justify-items: end; gap: 2px; }
+.series-notes { display: grid; grid-template-columns: auto auto; align-items: center; justify-items: end; gap: 2px 8px; }
+.sc-link { position: absolute; inset: 0; border-radius: inherit; z-index: 0; }
+.series-card > :not(.sc-link) { position: relative; z-index: 1; pointer-events: none; }
+.series-card a, .series-card button { pointer-events: auto; }
+.series-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 8px; border-top: 1px dashed var(--line); }
+.series-actions > * { pointer-events: auto; }
 .series-notes small { font-size: 0.7rem; }
 .note-kind { background: #faf7f0; border-radius: 12px; padding: 10px 12px; font-size: 0.92rem; }
 .note-kind.initial { background: var(--gold-soft); }
@@ -534,7 +539,7 @@ button.child-tab { border: 0; background: transparent; cursor: pointer; width: 1
 .free-answer.claimed { border-color: var(--gold); background: #fff8e6; box-shadow: 0 0 0 2px rgb(234 179 8 / 0.25); }
 .claim-flag { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 999px; background: var(--gold); color: #3b2a00; font-weight: 800; font-size: 0.8rem; }
 .review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-.toggle-row { border: 0; background: transparent; cursor: pointer; font-size: 0.9rem; width: 24px; height: 24px; border-radius: 6px; color: var(--ink-2); transition: transform 0.15s; }
+.toggle-row { border: 2px solid var(--line); background: var(--card); cursor: pointer; font-size: 1.35rem; line-height: 1; width: 40px; height: 40px; border-radius: 10px; color: var(--ink); display: inline-grid; place-items: center; transition: transform 0.15s; }
 .toggle-row:hover { background: rgb(30 41 59 / 0.06); }
 .toggle-row[aria-expanded="true"] { transform: rotate(90deg); }
 .lr-title { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 11rem; overflow: hidden; }
@@ -563,3 +568,11 @@ button.child-tab { border: 0; background: transparent; cursor: pointer; width: 1
 .requests .request-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
 .request-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; border: 1px solid var(--line); border-left: 5px solid var(--c, var(--gold)); border-radius: 12px; padding: 10px 12px; }
 .request-row p { margin: 6px 0 0; white-space: pre-wrap; }
+.subject-empty { display: flex; flex-wrap: wrap; gap: 6px; }
+.subject-empty .chip { min-height: 34px; padding: 4px 10px; font-size: 0.88rem; }
+.sr-empty-title { margin: 14px 0 6px; }
+.fa-lesson { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line); font-size: 0.9rem; }
+.fa-lesson a { font-weight: 800; color: var(--ink); }
+.fa-test { font-weight: 700; color: var(--ink-2); }
+.subjects-table tr.no-lesson td { color: var(--muted); }
+.subjects-table tr.no-lesson .subj-icon { opacity: 0.6; }

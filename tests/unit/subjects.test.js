@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { subjectOf, levelOf, programUrl, cycleOf } from "../../src/data/subjects.js";
-import { subjectBreakdown } from "../../src/lib/stats.js";
+import { subjectOf, levelOf, programUrl, cycleOf, taughtSubjects } from "../../src/data/subjects.js";
+import { subjectBreakdown, withAllSubjects } from "../../src/lib/stats.js";
 import { svgOk, repairLesson } from "../../src/lib/lesson-check.js";
 import { userPrompt, SYSTEM_PROMPT } from "../../netlify/shared/prompt.js";
 import { estimateCreation } from "../../src/lib/pricing.js";
@@ -33,6 +33,31 @@ describe("matières et classes", () => {
     expect(programUrl("6e")).toMatch(/cycle-3/);
     expect(programUrl("3e")).toMatch(/cycle-4/);
     expect(programUrl(null)).toBeNull();
+  });
+
+  it("matières enseignées selon la classe", () => {
+    const ids = (lv) => taughtSubjects(lv).map((s) => s.id);
+    expect(ids(["CE1"])).toEqual(expect.arrayContaining(["francais", "mathematiques", "questionner-le-monde", "eps"]));
+    expect(ids(["CE1"])).not.toContain("histoire-geographie");
+    expect(ids(["CM2"])).toEqual(expect.arrayContaining(["histoire-geographie", "sciences", "anglais"]));
+    expect(ids(["CM2"])).not.toContain("svt");
+    expect(ids(["5e"])).toEqual(expect.arrayContaining(["svt", "physique-chimie", "technologie", "espagnol", "latin"]));
+    expect(ids(["5e"])).not.toContain("questionner-le-monde");
+    expect(ids(["CM2", "5e"])).toEqual(expect.arrayContaining(["sciences", "svt"]));
+    expect(ids([]).length).toBe(17); // sans classe : toutes, sauf « autre »
+    expect(ids([])).not.toContain("autre");
+  });
+
+  it("toutes les matières apparaissent, même sans leçon", () => {
+    const maths = { subjectInfo: subjectOf("maths"), subject: "Mathématiques" };
+    const odd = { subjectInfo: subjectOf("Cuisine"), subject: "Cuisine" };
+    const p = { status: "nouveau", note: null, reprise: null, done: 0, total: 2 };
+    const rows = withAllSubjects(subjectBreakdown([{ lesson: maths, p }, { lesson: odd, p }]), taughtSubjects(["CM2"]));
+    expect(rows[0].label).toBe("Mathématiques");
+    expect(rows[0].count).toBe(1);
+    expect(rows.find((r) => r.subject.id === "francais").count).toBe(0);
+    expect(rows.at(-1).label).toBe("Cuisine");
+    expect(rows).toHaveLength(taughtSubjects(["CM2"]).length + 1);
   });
 
   it("tableau par matière : nombre, statuts, moyennes", () => {

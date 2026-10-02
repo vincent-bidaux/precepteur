@@ -1,8 +1,9 @@
 // Accueil : un onglet par enfant ; répartition par matière, leçons à suivre,
 // nouvelles, archivées (filtre par matière, tri par date), demande de leçon.
 import { CHILDREN } from "../data/children.js";
-import { lessonsFor, catalog, loadCatalog } from "../catalog.js";
-import { lessonProgress, childOverview, levelOf, STATUS_LABEL, isArchived, subjectBreakdown } from "../lib/stats.js";
+import { lessonsFor, catalog, loadCatalog, childLevel } from "../catalog.js";
+import { taughtSubjects } from "../data/subjects.js";
+import { lessonProgress, childOverview, levelOf, STATUS_LABEL, isArchived, subjectBreakdown, withAllSubjects } from "../lib/stats.js";
 import { escapeHtml, formatDate, formatDuration, formatNote, plural } from "../lib/format.js";
 import { lsGet, lsSet } from "../lib/storage.js";
 import { topbar, noteBadge, progressBar, subjectTag, bindArchive } from "./common.js";
@@ -43,11 +44,13 @@ function archivedRow(child, { lesson, p }) {
   </div>`;
 }
 
-function subjectsCard(rows) {
-  if (!rows.length) return "";
+function subjectsCard(child, rows) {
+  const level = childLevel(child.id);
+  const empty = rows.filter((r) => !r.count);
   return `<section class="card subjects-card" id="matieres">
-    <h2>📚 Mes matières</h2>
+    <h2>📚 Mes matières${level ? ` <small class="muted">· ${escapeHtml(level)}</small>` : ""}</h2>
     <div class="subject-rows">${rows
+      .filter((r) => r.count)
       .map(
         (r) => `<div class="subject-row">
           <span class="sr-icon">${r.subject.icon}</span>
@@ -58,6 +61,12 @@ function subjectsCard(rows) {
         </div>`,
       )
       .join("")}</div>
+    ${
+      empty.length
+        ? `<p class="muted small sr-empty-title">Pas encore de leçon dans ${empty.length > 1 ? "ces matières" : "cette matière"} — touche-en une pour demander une leçon :</p>
+      <div class="subject-empty">${empty.map((r) => `<button type="button" class="chip ask-subject" data-label="${escapeHtml(r.label)}">${r.subject.icon} ${escapeHtml(r.subject.short || r.label)}${r.subject.option ? ` <small class="muted">(option)</small>` : ""}</button>`).join("")}</div>`
+        : ""
+    }
   </section>`;
 }
 
@@ -117,7 +126,7 @@ export function renderHome(app, { child, state }) {
         </div>
       </section>
 
-      ${subjectsCard(subjects)}
+      ${subjectsCard(child, withAllSubjects(subjects, taughtSubjects(childLevel(child.id) ? [childLevel(child.id)] : [])))}
 
       <div class="list-tools" role="toolbar" aria-label="Filtrer et trier">
         <div class="chips filter-chips">
@@ -154,6 +163,16 @@ export function renderHome(app, { child, state }) {
   const send = app.querySelector(".send-request");
   const msg = app.querySelector(".request-msg");
   text.addEventListener("input", () => (send.disabled = text.value.trim().length < 3));
+  // matière sans leçon → demande pré-remplie
+  app.querySelectorAll(".ask-subject").forEach((b) =>
+    b.addEventListener("click", () => {
+      text.value = `${b.dataset.label} : `;
+      send.disabled = true;
+      app.querySelector("#demande").scrollIntoView({ block: "center" });
+      text.focus();
+      text.setSelectionRange(text.value.length, text.value.length);
+    }),
+  );
   send.addEventListener("click", async () => {
     send.disabled = true;
     try {

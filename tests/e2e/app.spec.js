@@ -125,6 +125,10 @@ test("accueil : deux onglets, leçon nouvelle, rien qui déborde", async ({ page
   await expect(page.locator("#nouveau .subject-tag")).toContainText("Mathématiques");
   await expect(page.locator("#nouveau .subject-tag")).toContainText("5e");
   await expect(page.locator("#matieres")).toContainText("Mathématiques");
+  // toutes les matières enseignées, même sans leçon : un toucher prépare la demande
+  await expect(page.locator("#matieres .ask-subject", { hasText: "Français" })).toBeVisible();
+  await page.locator("#matieres .ask-subject", { hasText: "Français" }).click();
+  await expect(page.locator("#request-text")).toHaveValue("Français : ");
   await expect(page.locator("#demande textarea")).toBeVisible();
   await noHorizontalScroll(page);
 
@@ -240,6 +244,18 @@ test("erreurs : correction expliquée, note partielle, on refait ses erreurs", a
   const after = await card.locator(".note-badge").nth(1).innerText();
   expect(Number(after.replace(",", ".").match(/[\d.]+/)[0])).toBeGreaterThan(expected);
   await expect(page.locator(".note-box").first()).toContainText(String(expected).replace(".", ","));
+  // boutons au niveau du test : la question avec coup de pouce (0,75) reste à reprendre
+  await expect(card.locator(".redo-test")).toBeVisible();
+  await card.locator(".redo-wrong").click();
+  await expect(page).toHaveURL(new RegExp(`serie/${s.id}/erreurs$`));
+  await expect(page.locator(".runner-head")).toContainText("On refait les erreurs");
+  await expect(page.locator(".runner-head")).toContainText("/ 1");
+  await answer(page, s.questions[2]);
+  await page.locator(".feedback .next").click();
+  await expect(page.locator(".result")).toContainText("pour ce test");
+  await page.goto(`/#/enfant/livia/lecon/${L}/entrainer`);
+  await expect(card.locator(".no-wrong")).toBeVisible();
+  await expect(card.locator(".redo-wrong")).toHaveCount(0);
 });
 
 test("tous les types de questions (série défis) au clavier et à la souris", async ({ page }) => {
@@ -293,6 +309,10 @@ test("réponse libre : idées repérées, réponse modèle, points réclamés pu
   await expect(fa.locator(".claim-flag")).toContainText("à vérifier");
   await expect(fa.locator("blockquote")).toHaveText(txt);
   await expect(fa).toContainText("Correction IA"); // retour de l'IA visible par le parent
+  // à quelle leçon et quel test appartient la réponse
+  await expect(fa.locator(".fa-lesson")).toContainText("Les règles de calcul");
+  await expect(fa.locator(".fa-lesson .subject-tag")).toContainText("Maths · 5e");
+  await expect(fa.locator(".fa-test")).toContainText(s.title);
   // les réponses réclamées passent en tête
   await expect(page.locator("#dash-aurelius .free-answer").first()).toHaveClass(/claimed/);
   await fa.locator('[data-decision="valide"]').click();
@@ -309,7 +329,7 @@ test("synchronisation : ce qui est fait sur un appareil apparaît sur l'autre", 
   await phone.goto("/#/enfant/livia");
   await expect(phone.locator("#a-suivre .lesson-card")).toContainText("1/7");
   await phone.goto(`/#/enfant/livia/lecon/${L}/entrainer`);
-  await expect(phone.locator('[data-series="s5-gauche-droite"] .note-badge')).toContainText("20");
+  await expect(phone.locator('[data-series="s5-gauche-droite"] .note-badge').first()).toContainText("20");
   await other.close();
 });
 
@@ -322,7 +342,7 @@ test("hors ligne : rien n'est perdu, envoi au retour du réseau", async ({ page 
   await page.goto(`/#/enfant/aurelius/lecon/${L}/entrainer`);
   await page.reload();
   await expect(page.locator(".pill.warn")).toContainText("Hors ligne");
-  await expect(page.locator('[data-series="s3-parentheses"] .note-badge')).toContainText("20");
+  await expect(page.locator('[data-series="s3-parentheses"] .note-badge').first()).toContainText("20");
 
   await page.unroute("**/api/log*");
   await page.reload();
@@ -336,13 +356,13 @@ test("leçon entièrement réussie → refaire en entier, archiver, ressortir", 
   test.setTimeout(180000); // on joue les 7 séries
   for (const s of lesson.series) await playSeries(page, "livia", s);
   await page.goto(`/#/enfant/livia/lecon/${L}/entrainer`);
-  await expect(page.locator(".redo-all")).toBeVisible();
-  await expect(page.locator(".redo-wrong")).toHaveCount(0);
-  await page.locator(".redo-all").click();
-  await expect(page).toHaveURL(/reprise\/tout$/);
-  await expect(page.locator(".runner-head")).toContainText("Toute la leçon");
-  const total = lesson.series.reduce((n, s) => n + s.questions.length, 0);
-  await expect(page.locator(".runner-head")).toContainText(`/ ${total}`);
+  // chaque test a son « Refaire » ; aucune question ratée nulle part
+  await expect(page.locator(".series-card .redo-test")).toHaveCount(lesson.series.length);
+  await expect(page.locator(".series-card .redo-wrong")).toHaveCount(0);
+  const first = lesson.series[0];
+  await page.locator(`[data-series="${first.id}"] .redo-test`).click();
+  await expect(page).toHaveURL(new RegExp(`serie/${first.id}$`));
+  await expect(page.locator(".runner-head")).toContainText(`/ ${first.questions.length}`);
 
   await page.goto("/#/enfant/livia");
   const card = page.locator("#a-suivre .lesson-card", { hasText: "Les règles de calcul" });
@@ -452,8 +472,15 @@ test("tableau de bord : onglets enfants, leçons repliées, matières et program
   await expect(lessonRow.locator("tr.sub").first()).toBeVisible();
   // matières : sans classe renseignée, pas de lien ; on choisit la classe → lien officiel
   await expect(a.locator(".subjects-table")).toContainText("classe non renseignée");
+  // toutes les matières, même sans leçon
+  await expect(a.locator(".subjects-table tr.no-lesson", { hasText: "Français" })).toHaveCount(1);
+  const toggle = await lessonRow.locator(".toggle-row").boundingBox();
+  expect(toggle.width).toBeGreaterThanOrEqual(36); // flèche facile à toucher
   await a.locator('.level-picker [data-level="5e"]').click();
-  await expect(page.locator("#dash-aurelius .subjects-table a[href*='eduscol']")).toHaveAttribute("href", /cycle-4/);
+  await expect(page.locator("#dash-aurelius .subjects-table a[href*='eduscol']").first()).toHaveAttribute("href", /cycle-4/);
+  // en 5e : SVT, LV2… mais plus « Questionner le monde » (CP-CE2)
+  await expect(page.locator("#dash-aurelius .subjects-table")).toContainText("Physique-Chimie");
+  await expect(page.locator("#dash-aurelius .subjects-table")).not.toContainText("Questionner le monde");
   await expect(page.locator(".summary").first()).toContainText("5e");
   // journal long : rogné, « Voir plus » puis « Voir tout »
   const j = page.locator("#dash-aurelius .journal-zone");
