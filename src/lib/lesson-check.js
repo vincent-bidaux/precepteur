@@ -10,7 +10,22 @@ import { gradeQuestion, gradeFree } from "./grading.js";
 import { tryEvaluate, sameNumber } from "./expr.js";
 
 export const QUESTION_TYPES = ["qcm", "vf", "nombre", "expression", "trous", "associer", "ordre", "etapes", "libre"];
-export const BLOCK_TYPES = ["p", "h", "retenir", "piege", "astuce", "definition", "liste", "table", "schema", "exemples", "carres", "etapes"];
+export const BLOCK_TYPES = ["p", "h", "retenir", "piege", "astuce", "definition", "liste", "table", "schema", "exemples", "carres", "etapes", "illustration"];
+
+/**
+ * Une illustration SVG produite par Claude est-elle acceptable ? Elle est
+ * affichée comme image (<img src="data:…">), ce qui empêche déjà tout script ;
+ * on refuse en plus tout ce qui n'a rien à faire dans un dessin.
+ */
+export function svgOk(svg) {
+  return (
+    typeof svg === "string" &&
+    svg.length <= 15000 &&
+    /^\s*<svg[\s>]/i.test(svg) &&
+    /<\/svg>\s*$/i.test(svg) &&
+    !/<script|<foreignObject|javascript:|<image|<iframe|\son\w+\s*=|href\s*=\s*["'](?!#)/i.test(svg)
+  );
+}
 
 const isStr = (v) => typeof v === "string" && v.trim() !== "";
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
@@ -123,8 +138,8 @@ export function repairLesson(input) {
       ...s,
       id: slug(s.id) || `c${i + 1}`,
       blocks: (Array.isArray(s.blocks) ? s.blocks : []).filter((b) => {
-        const ok = b && BLOCK_TYPES.includes(b.type);
-        if (!ok) fixes.push(`bloc de fiche « ${b?.type} » ignoré`);
+        const ok = b && BLOCK_TYPES.includes(b.type) && (b.type !== "illustration" || svgOk(b.svg));
+        if (!ok) fixes.push(b?.type === "illustration" ? "illustration non conforme retirée" : `bloc de fiche « ${b?.type} » ignoré`);
         return ok;
       }),
     }));
@@ -148,6 +163,10 @@ export function repairLesson(input) {
           while (seenQ.has(qid)) qid += "b";
           seenQ.add(qid);
           const fixed = { ...q, id: qid };
+          if (q.illustration && !svgOk(q.illustration.svg)) {
+            fixes.push(`${s.title} : illustration non conforme retirée`);
+            delete fixed.illustration;
+          }
           // le moteur de calcul fait foi pour les « Calcule … »
           if (q.type === "nombre") {
             const v = computedAnswer(q.prompt);

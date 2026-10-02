@@ -1,8 +1,8 @@
 // Page d'une leçon : fiche de révision, séries d'exercices, « aller plus loin ».
-import { lessonProgress, STATUS_LABEL } from "../lib/stats.js";
+import { lessonProgress, STATUS_LABEL, wrongQuestions, isArchived } from "../lib/stats.js";
 import { escapeHtml, rich, formatDate } from "../lib/format.js";
 import { tryEvaluate } from "../lib/expr.js";
-import { topbar, noteBadge, stars, progressBar, lessonUrl } from "./common.js";
+import { topbar, noteBadge, stars, progressBar, lessonUrl, svgImg, subjectTag, bindArchive } from "./common.js";
 
 // ───────── Fiche de révision ─────────
 // Chaque étape d'un exemple est précédée de « = » (suite d'un calcul) ou de
@@ -36,6 +36,8 @@ function block(b, key) {
       return `<div class="callout definition"><strong>📘 ${rich(b.term)}</strong><p>${rich(b.text)}</p></div>`;
     case "liste":
       return `<ul class="liste">${(b.items || []).map((it) => `<li>${rich(it)}</li>`).join("")}</ul>`;
+    case "illustration":
+      return `<figure class="illustration">${svgImg(b.svg, b.caption || "")}${b.caption ? `<figcaption>${rich(b.caption)}</figcaption>` : ""}</figure>`;
     case "astuce":
       return `<div class="callout astuce"><strong>💡 Astuce</strong><p>${rich(b.text)}</p></div>`;
     case "table":
@@ -79,22 +81,37 @@ function courseTab(lesson, child) {
 }
 
 // ───────── Séries ─────────
-function seriesTab(lesson, child, p) {
+function seriesTab(lesson, child, p, records) {
+  const wrong = wrongQuestions(lesson, records, child.id).length;
   return `
     <section class="card overall">
-      <div><h2>Ta note pour cette leçon</h2><p class="muted">Moyenne de tes meilleures notes sur chaque série. ${p.complete ? "" : "Fais toutes les séries pour valider la leçon !"}</p></div>
-      ${noteBadge(p.note, { size: "big" })}
+      <div class="two-notes">
+        <div class="note-box"><span class="note-label">📌 Note initiale</span>${noteBadge(p.note, { size: "big" })}
+          <small class="muted">Ta première tentative de chaque série. C'est elle qui compte dans ta moyenne : concentre-toi dès la première fois !</small></div>
+        <div class="note-box"><span class="note-label">🔁 Note après reprise</span>${p.hasReprise ? noteBadge(p.reprise, { size: "big" }) : noteBadge(null, { size: "big" })}
+          <small class="muted">Ton meilleur résultat sur chaque question, en refaisant tes erreurs autant de fois que tu veux.</small></div>
+      </div>
+      ${p.complete ? "" : `<p class="muted small">Fais toutes les séries pour valider la leçon (${p.done}/${p.total}).</p>`}
+      <div class="actions wrap redo-actions">
+        ${wrong ? `<a class="btn primary redo-wrong" href="${lessonUrl(child, lesson, "reprise/erreurs")}">🎯 Refaire les questions mal répondues (${wrong})</a>` : p.done ? `<span class="pill good">✨ Aucune question ratée en ce moment</span>` : ""}
+        ${p.complete ? `<a class="btn ghost redo-all" href="${lessonUrl(child, lesson, "reprise/tout")}">🔄 Refaire la leçon en entier</a>` : ""}
+      </div>
     </section>
     <div class="series-list">
       ${lesson.series
         .map((s, i) => {
           const sm = p.series[s.id];
           const nb = s.questions.length;
+          const improved = sm.attempts && sm.reprise !== null && sm.reprise !== sm.initial;
           return `<a class="series-card ${sm.attempts ? "done" : ""}" href="${lessonUrl(child, lesson, `serie/${s.id}`)}" data-series="${s.id}">
             <span class="series-num">${i + 1}</span>
             <span class="series-body"><strong>${rich(s.title)}</strong><small class="muted">${rich(s.intro)}</small>
-              <small class="muted">${nb} questions${sm.attempts ? ` · ${sm.attempts} essai${sm.attempts > 1 ? "s" : ""} · dernier ${formatDate(sm.lastTs)}` : ""}</small></span>
-            <span class="series-end">${sm.attempts ? `${stars(sm.best)}${noteBadge(sm.best)}<span class="btn ghost small">Refaire</span>` : `<span class="btn small">Go !</span>`}</span>
+              <small class="muted">${nb} questions${sm.attempts ? ` · dernier essai ${formatDate(sm.lastTs)}` : ""}</small></span>
+            <span class="series-end">${
+              sm.attempts
+                ? `${stars(sm.initial)}<span class="series-notes">${noteBadge(sm.initial)}${improved ? `<small class="muted">après reprise</small>${noteBadge(sm.reprise)}` : ""}</span><span class="btn ghost small">Refaire</span>`
+                : `<span class="btn small">Go !</span>`
+            }</span>
           </a>`;
         })
         .join("")}
@@ -129,6 +146,7 @@ function beyondTab(lesson) {
 
 export function renderLesson(app, { child, lesson, tab, state }) {
   const p = lessonProgress(lesson, state.records, child.id);
+  const archived = isArchived(state.records, child.id, lesson.id);
   const current = tab || (p.status === "nouveau" ? "reviser" : "entrainer");
   const base = lessonUrl(child, lesson);
   const tabs = [
@@ -144,17 +162,18 @@ export function renderLesson(app, { child, lesson, tab, state }) {
       <header class="lesson-head">
         <div class="lc-icon big">${lesson.icon}</div>
         <div>
-          <div class="lc-meta"><span class="subject">${escapeHtml(lesson.subject)}</span><span class="pill status status-${p.status}">${STATUS_LABEL[p.status]}</span></div>
+          <div class="lc-meta">${subjectTag(lesson)}<span class="pill status status-${p.status}">${STATUS_LABEL[p.status]}</span>${archived ? `<span class="pill">🗄️ Archivée</span>` : ""}</div>
           <h1>${escapeHtml(lesson.title)}</h1>
           <p class="muted">${escapeHtml(lesson.subtitle)}</p>
           <div class="lc-progress">${progressBar(p.done / p.total, "Séries faites")}<span>${p.done}/${p.total} séries</span></div>
+          ${child.preview ? "" : `<button type="button" class="btn ghost small archive-btn" data-lesson="${escapeHtml(lesson.id)}" data-archived="${archived}">${archived ? "📤 Sortir des archives" : "🗄️ Archiver"}</button>`}
         </div>
       </header>
       <nav class="lesson-tabs" role="tablist">
         ${tabs.map(([id, label]) => `<a role="tab" aria-selected="${id === current}" class="${id === current ? "active" : ""}" href="${base}/${id}">${label}</a>`).join("")}
       </nav>
       <div class="lesson-body">
-        ${current === "reviser" ? courseTab(lesson, child) : current === "entrainer" ? seriesTab(lesson, child, p) : beyondTab(lesson)}
+        ${current === "reviser" ? courseTab(lesson, child) : current === "entrainer" ? seriesTab(lesson, child, p, state.records) : beyondTab(lesson)}
       </div>
       ${lesson.source ? `<p class="footnote muted">Source : ${escapeHtml(lesson.source)}</p>` : ""}
     </main>`;
@@ -197,4 +216,5 @@ export function renderLesson(app, { child, lesson, tab, state }) {
       }),
     );
   });
+  bindArchive(app, child, () => renderLesson(app, { child, lesson, tab: current, state }));
 }

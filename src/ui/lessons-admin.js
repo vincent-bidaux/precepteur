@@ -1,15 +1,17 @@
 // Espace parents › Leçons : créer une leçon avec Claude (photos et/ou texte),
 // en tâche de fond — la page peut être fermée —, choisir pour quel enfant est
-// chaque leçon, publier / dépublier, supprimer.
+// chaque leçon, corriger titre / matière / classe, publier / dépublier,
+// supprimer ; demandes de leçons envoyées par les enfants.
 import { CHILDREN, childById } from "../data/children.js";
-import { allLessons, childrenOf, statusOf, loadCatalog, aiGradingOf, lessonCosts } from "../catalog.js";
+import { allLessons, childrenOf, statusOf, loadCatalog, aiGradingOf, lessonCosts, catalog, childLevel } from "../catalog.js";
+import { SUBJECTS, LEVELS } from "../data/subjects.js";
 import { MODELS, CREATION_MODELS, DEFAULT_CREATION_MODEL, GRADING_MODEL, estimateCreation, estimateGrading, formatUsd } from "../lib/pricing.js";
 import { LENGTHS, DEFAULT_LENGTH, QUESTIONS, lengthInfo, seriesFor, minutesForQuestions } from "../lib/lesson-size.js";
 import { prepareImage } from "../lib/images.js";
 import { keepFormattingOnPaste } from "../lib/paste.js";
 import { lsGet, lsSet } from "../lib/storage.js";
 import { escapeHtml, formatDate, plural } from "../lib/format.js";
-import { topbar } from "./common.js";
+import { topbar, subjectTag } from "./common.js";
 
 const MAX_PHOTOS = 10;
 const MIN_TEXT = 20; // en dessous, sans photo, il n'y a pas de quoi construire une leçon
@@ -24,6 +26,8 @@ Contrôle vendredi, insister sur les dates et le vocabulaire.
 Ou simplement : « Programme de CM2 : les unités de mesure »`;
 const K_CODE = "precepteur:parent-code";
 const POLL_MS = 15000; // vérification des leçons en cours de création (modifiable pour les tests)
+const PER_PAGE = 20;
+const K_LIST = "precepteur:admin-list"; // onglet, tri et filtre de la liste
 
 /** fetch pour les actions parent : ajoute le code parent si le serveur en demande un. */
 export async function parentFetch(url, opts = {}, retry = true) {
@@ -76,31 +80,60 @@ function childChecks(name, selected) {
   ).join("");
 }
 
-function lessonRow(l) {
+const kidBadges = (kids) =>
+  kids
+    .map((k) => childById(k))
+    .filter(Boolean)
+    .map((c) => `<span class="kid-badge" style="--c:${c.color};--cs:${c.soft}">${c.emblem} ${escapeHtml(c.name)}</span>`)
+    .join(" ") || `<span class="muted small">personne</span>`;
+
+const lessonDate = (l) => l.createdAt || Date.parse(l.addedAt) || 0;
+
+/** Brique d'une leçon : repliée (titre, matière, classe, enfants), dépliée pour la gérer. */
+function lessonRow(l, open) {
   const kids = childrenOf(l);
   const status = statusOf(l);
-  return `<article class="admin-lesson card" data-id="${escapeHtml(l.id)}">
+  return `<article class="admin-lesson card ${open ? "open" : ""}" data-id="${escapeHtml(l.id)}">
     <div class="al-head">
-      <span class="lc-icon small">${escapeHtml(l.icon || "📘")}</span>
+      <span class="lc-icon small" aria-hidden="true">${escapeHtml(l.icon || "📘")}</span>
       <div class="al-title">
-        <strong>${escapeHtml(l.title)}</strong>
-        <small class="muted">${escapeHtml(l.subject)} · ${plural(l.series.length, "série")} · ${plural(countQuestions(l), "question")} · ${l.builtin ? "leçon intégrée" : `créée avec Claude${l.createdAt ? `, ${formatDate(l.createdAt)}` : ""}`}</small>
+        <strong class="al-name">${escapeHtml(l.title)}</strong>
+        <span class="al-subject">${subjectTag(l)} ${kidBadges(kids)}</span>
+        <small class="muted">${plural(l.series.length, "série")} · ${plural(countQuestions(l), "question")} · ${l.builtin ? "leçon intégrée" : `créée avec Claude${l.createdAt ? `, ${formatDate(l.createdAt)}` : ""}`}</small>
       </div>
       <span class="pill ${status === "publiee" ? "good" : "warn"} al-status">${status === "publiee" ? "Publiée" : "Brouillon"}</span>
+      <button type="button" class="btn ghost small al-expand" aria-expanded="${open}">${open ? "▾ Fermer" : "▸ Gérer"}</button>
     </div>
-    <p class="small muted al-cost">${costLine(l)}</p>
-    ${iosSwitch("ai-toggle", aiGradingOf(l), "Correction des réponses libres par l'IA", AI_HINT())}
-    <div class="al-controls">
-      <fieldset class="kids"><legend class="muted small">Pour</legend>${childChecks(`kids-${l.id}`, kids)}</fieldset>
-      <div class="al-actions">
-        <a class="btn ghost small" href="#/apercu/${encodeURIComponent(l.id)}">👁️ Aperçu</a>
-        <button type="button" class="btn small toggle-status">${status === "publiee" ? "Dépublier" : "✅ Publier"}</button>
-        ${l.builtin ? "" : `<button type="button" class="btn ghost small danger delete">🗑️</button>`}
+    <div class="al-body" ${open ? "" : "hidden"}>
+      <form class="al-edit">
+        <label class="field al-f-title"><span>Titre</span><input name="title" maxlength="120" value="${escapeHtml(l.title)}" required /></label>
+        <label class="field"><span>Matière</span><select name="subject">${SUBJECTS.map((x) => `<option value="${escapeHtml(x.label)}" ${x.id === l.subjectInfo?.id ? "selected" : ""}>${x.icon} ${escapeHtml(x.label)}</option>`).join("")}</select></label>
+        <label class="field"><span>Classe</span><select name="level"><option value="" ${l.level ? "" : "selected"} disabled>—</option>${LEVELS.map((v) => `<option ${v === l.level ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+        <button type="submit" class="btn small save-meta">💾 Enregistrer</button>
+      </form>
+      <p class="small muted al-cost">${costLine(l)}</p>
+      ${iosSwitch("ai-toggle", aiGradingOf(l), "Correction des réponses libres par l'IA", AI_HINT())}
+      <div class="al-controls">
+        <fieldset class="kids"><legend class="muted small">Pour</legend>${childChecks(`kids-${l.id}`, kids)}</fieldset>
+        <div class="al-actions">
+          <a class="btn ghost small" href="#/apercu/${encodeURIComponent(l.id)}">👁️ Aperçu</a>
+          <button type="button" class="btn small toggle-status">${status === "publiee" ? "Dépublier" : "✅ Publier"}</button>
+          ${l.builtin ? "" : `<button type="button" class="btn ghost small danger delete">🗑️</button>`}
+        </div>
       </div>
+      ${l.checkNotes?.length ? `<details class="small al-notes"><summary>${plural(l.checkNotes.length, "remarque")} de vérification automatique</summary><ul>${l.checkNotes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul></details>` : ""}
     </div>
-    ${l.checkNotes?.length ? `<details class="small al-notes"><summary>${plural(l.checkNotes.length, "remarque")} de vérification automatique</summary><ul>${l.checkNotes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul></details>` : ""}
     <p class="al-msg small" aria-live="polite"></p>
   </article>`;
+}
+
+function requestRow(r) {
+  const c = childById(r.child);
+  return `<li class="request-row" data-request="${escapeHtml(r.id)}" style="--c:${c?.color};--cs:${c?.soft}">
+    <div><span class="kid-badge" style="--c:${c?.color};--cs:${c?.soft}">${c?.emblem || ""} ${escapeHtml(c?.name || r.child)}</span> <small class="muted">${formatDate(r.createdAt)}</small>
+      <p>${escapeHtml(r.text)}</p></div>
+    <div class="al-actions"><button type="button" class="btn small use-request">✨ Créer cette leçon</button><button type="button" class="btn ghost small danger del-request">🗑️</button></div>
+  </li>`;
 }
 
 function jobRow(job) {
@@ -112,7 +145,7 @@ function jobRow(job) {
       <div class="al-title">
         <strong>${failed ? "Création échouée" : "Leçon en cours de création…"}</strong>
         <small class="muted">${escapeHtml(job.label || "")} · pour ${escapeHtml(kids)} · ${failed ? "" : "demandée "}${formatDate(job.createdAt)}</small>
-        <small class="muted">${escapeHtml(MODELS[job.model]?.label || "")}${job.size ? ` · fiche ${lengthInfo(job.size.length).label.toLowerCase()} · ${job.size.questions} questions` : ""}${job.cost ? ` · coût ${formatUsd(job.cost)}` : ""}${job.aiGrading === false ? " · sans correction IA" : ""}</small>
+        <small class="muted">${escapeHtml(MODELS[job.model]?.label || "")}${job.size ? ` · fiche ${lengthInfo(job.size.length).label.toLowerCase()} · ${job.size.questions} questions` : ""}${job.cost ? ` · coût ${formatUsd(job.cost)}` : ""}${job.aiGrading === false ? " · sans correction IA" : ""}${job.illustrations ? " · avec illustrations" : ""}</small>
       </div>
       <span class="pill ${failed ? "warn" : ""} al-status">${failed ? "Échec" : "En cours"}</span>
     </div>
@@ -129,6 +162,10 @@ export function renderLessonsAdmin(app, state) {
   let busy = false;
   let jobs = [];
   let pollTimer = null;
+  let fromRequest = null; // demande d'enfant à l'origine de la leçon en préparation
+  const openIds = new Set();
+  const view = { kid: "tous", subject: "", sort: "recent", page: 1, ...lsGet(K_LIST, {}) };
+  view.page = 1;
 
   app.innerHTML = `
     ${topbar({ back: "#/", backLabel: "Accueil", title: "Espace parents" })}
@@ -162,16 +199,31 @@ export function renderLessonsAdmin(app, state) {
           ).join("")}
         </fieldset>
         ${iosSwitch("new-ai", true, "Correction des réponses libres par l'IA", AI_HINT())}
+        ${iosSwitch("new-illus", false, "L'IA peut produire des illustrations pour la leçon et les tests", "Schémas, figures, frises dessinés par Claude. Un peu plus long et plus cher : <b class=\"illus-cost\"></b>.")}
         <p class="muted small">Coûts estimés d'après les tarifs Anthropic (traitement différé, moitié prix). Le coût réel s'affiche ensuite sur chaque leçon.</p>
 
         <div class="actions"><button type="button" class="btn primary generate" disabled>🪄 Créer la leçon</button></div>
         <div class="gen-status" hidden aria-live="polite"></div>
       </section>
 
-      <section>
+      <section class="card requests" id="demandes" hidden>
+        <h2>📬 Demandes des enfants <span class="count request-count"></span></h2>
+        <ul class="request-list"></ul>
+      </section>
+
+      <section id="toutes">
         <h2 class="section-title">📚 Toutes les leçons <span class="count lesson-count"></span></h2>
-        <p class="muted small">Coche pour quel enfant est chaque leçon. Seules les leçons <strong>publiées</strong> apparaissent sur l'accueil des enfants.</p>
+        <p class="muted small">Clique sur « Gérer » pour corriger le titre, la matière ou la classe, choisir pour quel enfant est la leçon, la publier. Seules les leçons <strong>publiées</strong> apparaissent sur l'accueil des enfants.</p>
+        <nav class="child-tabs admin-tabs" role="tablist" aria-label="Leçons par enfant">
+          <button type="button" role="tab" class="child-tab" data-kid="tous">👨‍👩‍👧 Toutes</button>
+          ${CHILDREN.map((c) => `<button type="button" role="tab" class="child-tab" data-kid="${c.id}" style="--c:${c.color};--cs:${c.soft}"><span class="emblem">${c.emblem}</span>${escapeHtml(c.name)}</button>`).join("")}
+        </nav>
+        <div class="list-tools admin-tools">
+          <label class="field inline"><span>Matière</span><select class="subject-filter"></select></label>
+          <button type="button" class="btn ghost small sort-btn"></button>
+        </div>
         <div class="admin-list"></div>
+        <nav class="pager admin-pager" aria-label="Pages"></nav>
       </section>
     </main>`;
 
@@ -191,12 +243,18 @@ export function renderLessonsAdmin(app, state) {
     const n = Number(nqEl.value);
     app.querySelector(".len-out").textContent = `${l.label} — ${l.sections} sections, ≈ ${l.minutes} min de lecture`;
     app.querySelector(".q-out").textContent = `${n} questions en ${seriesFor(n)} séries — ≈ ${minutesForQuestions(n)} min`;
+    const illustrations = app.querySelector(".new-illus input").checked;
     app.querySelectorAll(".model-cost").forEach((b) => {
-      b.textContent = `≈ ${formatUsd(estimateCreation(b.dataset.model, { photos: photos.length, length: l.level, questions: n }))} la leçon`;
+      b.textContent = `≈ ${formatUsd(estimateCreation(b.dataset.model, { photos: photos.length, length: l.level, questions: n, illustrations }))} la leçon`;
     });
+    const m = app.querySelector('input[name="model"]:checked').value;
+    const extra = estimateCreation(m, { photos: photos.length, length: l.level, questions: n, illustrations: true }) - estimateCreation(m, { photos: photos.length, length: l.level, questions: n });
+    app.querySelector(".illus-cost").textContent = `+ ≈ ${formatUsd(extra)} avec ${MODELS[m].label}`;
   }
   lenEl.addEventListener("input", updateSize);
   nqEl.addEventListener("input", updateSize);
+  app.querySelector(".new-illus input").addEventListener("change", updateSize);
+  app.querySelectorAll('input[name="model"]').forEach((r) => r.addEventListener("change", updateSize));
   const hasContent = () => photos.length > 0 || notesEl.value.trim().length >= MIN_TEXT;
   const updateGenerate = () => (genBtn.disabled = busy || !hasContent());
   notesEl.addEventListener("input", updateGenerate);
@@ -257,6 +315,7 @@ export function renderLessonsAdmin(app, state) {
           children: kids,
           model: app.querySelector('input[name="model"]:checked').value,
           aiGrading: app.querySelector(".new-ai input").checked,
+          illustrations: app.querySelector(".new-illus input").checked,
           size: { length: Number(lenEl.value), questions: Number(nqEl.value) },
         }),
       });
@@ -264,6 +323,13 @@ export function renderLessonsAdmin(app, state) {
       if (!res.ok) throw new Error(errorMessage(out.error, res.status));
       photos.length = 0;
       notesEl.value = "";
+      if (fromRequest) {
+        // la demande de l'enfant est traitée : on la retire
+        await parentFetch(`/api/lessons?request=${encodeURIComponent(fromRequest)}`, { method: "DELETE" }).catch(() => {});
+        fromRequest = null;
+        await loadCatalog().catch(() => {});
+        drawRequests();
+      }
       drawThumbs();
       showStatus(`<p class="ok"><strong>✅ C'est parti !</strong> Claude prépare la leçon en arrière-plan (en général quelques minutes). Tu peux fermer cette page : la leçon apparaîtra ci-dessous, en brouillon.</p>`);
       jobs = [out.job, ...jobs];
@@ -278,12 +344,95 @@ export function renderLessonsAdmin(app, state) {
   });
 
   // ───────── liste : tâches en cours + leçons ─────────
+  function visibleLessons() {
+    const list = allLessons().filter((l) => view.kid === "tous" || childrenOf(l).includes(view.kid));
+    const subjects = [...new Map(list.map((l) => [l.subjectInfo?.id, l.subjectInfo])).values()].filter(Boolean);
+    if (view.subject && !subjects.some((x) => x.id === view.subject)) view.subject = "";
+    const shown = list
+      .filter((l) => !view.subject || l.subjectInfo?.id === view.subject)
+      .sort((a, b) => (view.sort === "ancien" ? -1 : 1) * (lessonDate(b) - lessonDate(a) || String(b.id).localeCompare(String(a.id))));
+    return { shown, subjects };
+  }
+
   function drawList() {
-    const lessons = allLessons().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0) || String(b.addedAt).localeCompare(String(a.addedAt)));
-    app.querySelector(".lesson-count").textContent = String(lessons.length);
-    listEl.innerHTML = jobs.map(jobRow).join("") + lessons.map(lessonRow).join("");
+    lsSet(K_LIST, { kid: view.kid, subject: view.subject, sort: view.sort });
+    const { shown, subjects } = visibleLessons();
+    const pages = Math.max(1, Math.ceil(shown.length / PER_PAGE));
+    view.page = Math.min(Math.max(1, view.page), pages);
+    const pageItems = shown.slice((view.page - 1) * PER_PAGE, view.page * PER_PAGE);
+    app.querySelector(".lesson-count").textContent = String(shown.length);
+    app.querySelectorAll(".admin-tabs [data-kid]").forEach((b) => {
+      b.classList.toggle("active", b.dataset.kid === view.kid);
+      b.setAttribute("aria-selected", String(b.dataset.kid === view.kid));
+    });
+    app.querySelector(".subject-filter").innerHTML =
+      `<option value="">Toutes les matières</option>` + subjects.map((x) => `<option value="${x.id}" ${x.id === view.subject ? "selected" : ""}>${x.icon} ${escapeHtml(x.label)}</option>`).join("");
+    app.querySelector(".sort-btn").textContent = view.sort === "ancien" ? "⬆️ Plus anciennes d'abord" : "⬇️ Plus récentes d'abord";
+    const kidJobs = jobs.filter((j) => view.kid === "tous" || (j.children || []).includes(view.kid));
+    listEl.innerHTML =
+      (view.page === 1 ? kidJobs.map(jobRow).join("") : "") +
+      (pageItems.map((l) => lessonRow(l, openIds.has(l.id))).join("") || `<p class="muted empty">Aucune leçon ici.</p>`);
+    app.querySelector(".admin-pager").innerHTML =
+      pages > 1
+        ? `<button type="button" class="btn ghost small" data-page="${view.page - 1}" ${view.page === 1 ? "disabled" : ""}>◀ Précédentes</button><span class="page">Page ${view.page} / ${pages}</span><button type="button" class="btn ghost small" data-page="${view.page + 1}" ${view.page === pages ? "disabled" : ""}>Suivantes ▶</button>`
+        : "";
     bindJobs();
     bindLessons();
+  }
+
+  app.querySelectorAll(".admin-tabs [data-kid]").forEach((b) =>
+    b.addEventListener("click", () => {
+      view.kid = b.dataset.kid;
+      view.page = 1;
+      drawList();
+    }),
+  );
+  app.querySelector(".subject-filter").addEventListener("change", (e) => {
+    view.subject = e.target.value;
+    view.page = 1;
+    drawList();
+  });
+  app.querySelector(".sort-btn").addEventListener("click", () => {
+    view.sort = view.sort === "ancien" ? "recent" : "ancien";
+    view.page = 1;
+    drawList();
+  });
+  app.querySelector(".admin-pager").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-page]");
+    if (!b) return;
+    view.page = Number(b.dataset.page);
+    drawList();
+    app.querySelector("#toutes").scrollIntoView({ block: "start" });
+  });
+
+  // ───────── demandes des enfants ─────────
+  function drawRequests() {
+    const reqs = catalog.requests || [];
+    const box = app.querySelector("#demandes");
+    box.hidden = !reqs.length;
+    app.querySelector(".request-count").textContent = String(reqs.length);
+    box.querySelector(".request-list").innerHTML = reqs.map(requestRow).join("");
+    box.querySelectorAll("[data-request]").forEach((li) => {
+      const r = reqs.find((x) => x.id === li.dataset.request);
+      li.querySelector(".use-request").addEventListener("click", () => {
+        fromRequest = r.id;
+        notesEl.value = `Demande de ${childById(r.child)?.name || r.child}${childLevel(r.child) ? ` (${childLevel(r.child)})` : ""} :\n${r.text}`;
+        app.querySelectorAll('input[name="new-kids"]').forEach((i) => (i.checked = i.value === r.child));
+        updateGenerate();
+        app.querySelector("#creer").scrollIntoView({ block: "start" });
+        notesEl.focus();
+      });
+      li.querySelector(".del-request").addEventListener("click", async (e) => {
+        if (!window.confirm("Supprimer cette demande ?")) return;
+        e.currentTarget.disabled = true;
+        const res = await parentFetch(`/api/lessons?request=${encodeURIComponent(r.id)}`, { method: "DELETE" });
+        if (res.ok) {
+          catalog.requests = reqs.filter((x) => x.id !== r.id);
+          await loadCatalog().catch(() => {});
+          drawRequests();
+        } else e.currentTarget.disabled = false;
+      });
+    });
   }
 
   async function fetchJobs() {
@@ -355,11 +504,39 @@ export function renderLessonsAdmin(app, state) {
         if (!res.ok) throw new Error();
         await loadCatalog();
       };
+      row.querySelector(".al-expand").addEventListener("click", () => {
+        if (openIds.has(id)) openIds.delete(id);
+        else openIds.add(id);
+        const open = openIds.has(id);
+        row.classList.toggle("open", open);
+        row.querySelector(".al-body").hidden = !open;
+        const b = row.querySelector(".al-expand");
+        b.setAttribute("aria-expanded", String(open));
+        b.textContent = open ? "▾ Fermer" : "▸ Gérer";
+      });
+      row.querySelector(".al-edit").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const f = e.currentTarget;
+        const el = f.elements;
+        const patch = { title: el.title.value.trim(), subject: el.subject.value };
+        if (el.level.value) patch.level = el.level.value;
+        if (!patch.title) return say("Le titre ne peut pas être vide.", false);
+        f.querySelector(".save-meta").disabled = true;
+        try {
+          await put(patch);
+          drawList();
+          listEl.querySelector(`[data-id="${CSS.escape(id)}"] .al-msg`)?.replaceChildren("Titre, matière et classe enregistrés ✓");
+        } catch {
+          f.querySelector(".save-meta").disabled = false;
+          say("Échec de l'enregistrement, réessaie.", false);
+        }
+      });
       row.querySelectorAll(".kids input").forEach((box) =>
         box.addEventListener("change", async () => {
           const kids = [...row.querySelectorAll(".kids input:checked")].map((i) => i.value);
           try {
             await put({ children: kids });
+            row.querySelector(".al-subject").innerHTML = `${subjectTag(allLessons().find((l) => l.id === id))} ${kidBadges(kids)}`;
             say(kids.length ? `Enregistré ✓ — pour ${kids.map((k) => childById(k).name).join(" et ")}` : "Enregistré ✓ — attribuée à personne");
           } catch {
             box.checked = !box.checked;
@@ -401,6 +578,7 @@ export function renderLessonsAdmin(app, state) {
 
   updateSize();
   drawList();
+  drawRequests();
   fetchJobs().then(() => {
     if (stillHere()) drawList();
     schedulePoll();

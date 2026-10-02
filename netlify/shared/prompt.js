@@ -3,8 +3,18 @@
 // d'exemple complet du format et du niveau d'exigence attendu.
 import example from "../../src/lessons/maths-regles-de-calcul-1.js";
 import { sizeInstruction } from "../../src/lib/lesson-size.js";
+import { SUBJECTS, LEVELS } from "../../src/data/subjects.js";
 
-const EXAMPLE_JSON = JSON.stringify({ ...example, children: undefined, addedAt: undefined });
+const SUBJECT_NAMES = SUBJECTS.filter((s) => s.id !== "autre").map((s) => `"${s.label}"`).join(" | ");
+const LEVEL_NAMES = LEVELS.map((l) => `"${l}"`).join(" | ");
+
+/** Consigne optionnelle : illustrations dessinées en SVG par Claude. */
+export const ILLUSTRATIONS_INSTRUCTION = `Illustrations demandées par le parent : ajoute 3 à 6 illustrations simples et utiles (schéma, figure géométrique, frise, carte simplifiée, tableau visuel), dessinées en SVG :
+- dans la fiche, un bloc {"type":"illustration","svg":"<svg …>…</svg>","caption":"légende"} ;
+- dans quelques questions, un champ "illustration": {"svg":"<svg …>…</svg>","alt":"description"}.
+SVG autonome avec viewBox (largeur 320 à 640), sans script, sans image externe, sans lien, moins de 6 000 caractères, couleurs sobres, textes en français lisibles (taille ≥ 14). N'en mets que si elles aident vraiment à comprendre.`;
+
+const EXAMPLE_JSON = JSON.stringify({ ...example, children: undefined, addedAt: undefined, icon: undefined });
 
 export const SYSTEM_PROMPT = `Tu es le précepteur d'Aurelius et Livia, deux élèves (primaire ou collège). À partir des photos d'une leçon (cours, fiche, cahier, manuel) et/ou d'un texte fourni par le parent (plan de cours, partie du programme, notes), tu construis une leçon de RÉVISION complète pour l'application Précepteur.
 
@@ -23,8 +33,9 @@ Format de sortie — IMPÉRATIF :
 Ta réponse finale (après d'éventuelles recherches) est UNIQUEMENT un objet JSON valide (pas de texte avant ou après, pas de bloc \`\`\`), de la forme :
 {
   "id": "matiere-sujet-en-kebab-case",
-  "subject": "Maths" | "Français" | "Histoire" | "Géographie" | "SVT" | "Physique-Chimie" | "Anglais" | … ,
-  "title": "…", "subtitle": "…", "icon": "un seul emoji",
+  "subject": une de ces matières, écrite exactement ainsi : ${SUBJECT_NAMES},
+  "level": la classe, écrite exactement ainsi : ${LEVEL_NAMES} (celle indiquée par le parent, sinon celle que montrent les documents),
+  "title": "…", "subtitle": "…",
   "source": "d'où vient la leçon, en une ligne (ex. « Photos : 2 pages du cahier » ou « Plan fourni : chapitre … du programme de 5e »)",
   "objectives": ["4 à 7 objectifs « savoir… »"],
   "manuel": ["exercices du manuel cités dans les documents fournis, sinon tableau vide"],
@@ -61,7 +72,7 @@ Mini-balisage dans tous les textes : **gras**, *italique*, 5^2 ou 2^{10} pour un
 Exemple complet d'une leçon réussie (même format, à imiter pour la qualité et la structure, pas pour le contenu) :
 ${EXAMPLE_JSON}`;
 
-export function userPrompt(notes, count, size) {
+export function userPrompt(notes, count, size, { illustrations = false } = {}) {
   const intro = count
     ? `Voici ${count} photo${count > 1 ? "s" : ""} d'une leçon, dans l'ordre. Construis la leçon Précepteur complète.`
     : "Pas de photo : construis la leçon Précepteur complète à partir du texte ci-dessous (plan, partie du programme ou notes). Rédige toi-même tout le cours.";
@@ -69,6 +80,7 @@ export function userPrompt(notes, count, size) {
     intro,
     notes ? `${count ? "Précisions du parent (à respecter)" : "Texte du parent"} :\n<texte_parent>\n${notes}\n</texte_parent>` : "",
     sizeInstruction(size),
+    illustrations ? ILLUSTRATIONS_INSTRUCTION : "Pas d'illustration : uniquement du texte.",
     "Réponds uniquement avec l'objet JSON.",
   ]
     .filter(Boolean)

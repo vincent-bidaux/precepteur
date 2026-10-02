@@ -4,18 +4,32 @@
 import { LESSONS } from "./lessons/index.js";
 import { CHILDREN } from "./data/children.js";
 import { lsGet, lsSet } from "./lib/storage.js";
+import { subjectOf, levelOf } from "./data/subjects.js";
 
 const K_CACHE = "precepteur:catalog";
 const BUILTIN = LESSONS.map((l) => ({ ...l, builtin: true }));
 
-export const catalog = { dynamic: [], meta: {}, costs: { grading: {}, failed: 0 }, ...lsGet(K_CACHE, {}) };
+export const catalog = { dynamic: [], meta: {}, costs: { grading: {}, failed: 0 }, children: {}, requests: [], ...lsGet(K_CACHE, {}) };
 
-export function setCatalog({ lessons = [], meta = {}, costs = { grading: {}, failed: 0 } }) {
-  catalog.dynamic = lessons;
-  catalog.meta = meta;
-  catalog.costs = costs;
-  lsSet(K_CACHE, { dynamic: lessons, meta, costs });
+export function setCatalog({ lessons = [], meta = {}, costs = { grading: {}, failed: 0 }, children = {}, requests = [] }) {
+  Object.assign(catalog, { dynamic: lessons, meta, costs, children, requests });
+  cache = null;
+  lsSet(K_CACHE, { dynamic: lessons, meta, costs, children, requests });
 }
+
+/** Classe d'un enfant (réglée dans l'espace parents), ex. « 5e ». */
+export const childLevel = (childId) => catalog.children?.[childId]?.level || null;
+
+/**
+ * Leçon telle qu'affichée : titre, matière et niveau corrigés par le parent
+ * le cas échéant ; la matière est normalisée (icône, libellé) via le catalogue.
+ */
+function decorate(l) {
+  const ov = catalog.meta[l.id] || {};
+  const subject = subjectOf(ov.subject ?? l.subject);
+  return { ...l, title: ov.title || l.title, subjectInfo: subject, subject: subject.id === "autre" ? ov.subject ?? l.subject ?? "Autre" : subject.label, level: levelOf(ov.level ?? l.level), icon: subject.icon };
+}
+let cache = null;
 
 /** Correction IA des réponses libres activée pour cette leçon ? */
 export const aiGradingOf = (lesson) => catalog.meta[lesson.id]?.aiGrading ?? lesson.aiGrading ?? true;
@@ -32,7 +46,8 @@ export function lessonCosts(lesson, childId = null) {
   };
 }
 
-export const allLessons = () => [...BUILTIN, ...catalog.dynamic.filter((d) => !BUILTIN.some((b) => b.id === d.id))];
+export const allLessons = () =>
+  (cache ||= [...BUILTIN, ...catalog.dynamic.filter((d) => !BUILTIN.some((b) => b.id === d.id))].map(decorate));
 
 export const lessonById = (id) => allLessons().find((l) => l.id === id);
 

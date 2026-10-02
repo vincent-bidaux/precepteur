@@ -4,12 +4,14 @@
 //   #/enfant/<id>                         accueil, onglet de l'enfant
 //   #/enfant/<id>/lecon/<lecon>[/<onglet>] une leçon (reviser | entrainer | plus-loin)
 //   #/enfant/<id>/lecon/<lecon>/serie/<s>  une série d'exercices
+//   #/enfant/<id>/lecon/<lecon>/reprise/erreurs|tout  refaire les questions ratées / toute la leçon
 //   #/parent                              tableau de bord parent (suivi)
 //   #/parent/lecons                       gestion des leçons (création avec Claude)
 //   #/apercu/<lecon>[/<onglet>|/serie/<s>] aperçu parent d'une leçon
 import "./styles.css";
 import { CHILDREN, childById, PREVIEW_CHILD } from "./data/children.js";
 import { lessonById } from "./catalog.js";
+import { wrongQuestions } from "./lib/stats.js";
 import { state, refresh } from "./app.js";
 import { startVisit } from "./lib/visits.js";
 import { lsGet, lsSet } from "./lib/storage.js";
@@ -61,7 +63,7 @@ async function route() {
     const lesson = lessonById(parts[3]);
     if (!lesson) return notFound();
     const rest = parts.slice(4);
-    if (rest[0] === "serie") startVisit(location.hash, { page: "serie", lessonId: lesson.id, child: child.id });
+    if (rest[0] === "serie" || rest[0] === "reprise") startVisit(location.hash, { page: "serie", lessonId: lesson.id, child: child.id });
     else startVisit(`lecon:${lesson.id}:${rest[0]}`, { page: rest[0] || "lecon", lessonId: lesson.id, child: child.id });
     return openLesson(child, lesson, rest);
   }
@@ -75,8 +77,15 @@ function setChildColors(child) {
   document.documentElement.style.setProperty("--child-soft", child.soft);
 }
 
-/** rest = [] | [onglet] | ["serie", id] */
+/** rest = [] | [onglet] | ["serie", id] | ["reprise", "erreurs" | "tout"] */
 function openLesson(child, lesson, rest) {
+  if (rest[0] === "reprise") {
+    const all = rest[1] === "tout";
+    const items = all ? lesson.series.flatMap((s) => s.questions.map((q) => ({ series: s, q }))) : wrongQuestions(lesson, state.records, child.id);
+    if (!items.length) return renderLesson(app, { child, lesson, tab: "entrainer", state });
+    const series = { id: "reprise", title: all ? "Toute la leçon" : "Mes questions ratées" };
+    return renderRunner(app, { child, lesson, series, state, items, mode: all ? "redo" : "retry" });
+  }
   if (rest[0] === "serie") {
     const series = lesson.series.find((s) => s.id === rest[1]);
     if (!series) return notFound();

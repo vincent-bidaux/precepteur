@@ -13,10 +13,13 @@ import { CHILD_IDS } from "./children.js";
 import { json } from "./log.js";
 import { parentCodeOk } from "./auth.js";
 import { readCosts } from "./costs.js";
+import { levelOf } from "../../src/data/subjects.js";
 import { LESSONS } from "../../src/lessons/index.js";
 import { repairLesson, checkLesson } from "../../src/lib/lesson-check.js";
 
 const META_KEY = "meta/lessons";
+const CHILDREN_KEY = "settings/children";
+const MAX_REQUESTS = 50;
 const STATUSES = ["brouillon", "publiee"];
 const MAX_BYTES = 600_000;
 const isBuiltin = (id) => LESSONS.some((l) => l.id === id);
@@ -35,6 +38,16 @@ async function updateMeta(store, fn) {
     await new Promise((r) => setTimeout(r, Math.random() * 40 * (attempt + 1)));
   }
   throw new Error("conflict");
+}
+
+async function readJSON(store, key, fallback) {
+  return (await store.getWithMetadata(key, { type: "json" }))?.data ?? fallback;
+}
+
+async function readRequests(store) {
+  const { blobs } = await store.list({ prefix: "requests/" });
+  const all = await Promise.all(blobs.map((b) => store.getWithMetadata(b.key, { type: "json" })));
+  return all.map((x) => x?.data).filter(Boolean).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function readLessons(store) {
@@ -84,10 +97,43 @@ export async function handleLessons(req, store, { parentCode } = {}) {
     const id = url.searchParams.get("id");
 
     if (req.method === "GET") {
-      const [lessons, meta, costs] = await Promise.all([readLessons(store), readMeta(store), readCosts(store)]);
-      return json({ lessons, meta, costs });
+      const [lessons, meta, costs, children, requests] = await Promise.all([readLessons(store), readMeta(store), readCosts(store), readJSON(store, CHILDREN_KEY, {}), readRequests(store)]);
+      return json({ lessons, meta, costs, children, requests });
     }
+
+    // demande de leçon faite par un enfant (pas de code parent : c'est l'enfant qui écrit)
+    if (req.method === "POST" && url.searchParams.get("action") === "request") {
+      const body = await req.json().catch(() => ({}));
+      const text = typeof body.text === "string" ? body.text.trim().slice(0, 1000) : "";
+      if (!CHILD_IDS.includes(body.child) || text.length < 3) return json({ error: "bad_request" }, 400);
+      if ((await readRequests(store)).length >= MAX_REQUESTS) return json({ error: "trop_de_demandes" }, 429);
+      const r = { id: `req-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, child: body.child, text, subject: typeof body.subject === "string" ? body.subject.slice(0, 60) : "", createdAt: Date.now() };
+      await store.setJSON(`requests/${r.id}`, r);
+      return json({ request: r }, 201);
+    }
+
     if (!parentCodeOk(req, parentCode)) return json({ error: "code_parent" }, 401);
+
+    if (req.method === "DELETE" && url.searchParams.get("request")) {
+      const rid = url.searchParams.get("request");
+      if (!/^req-[a-z0-9]+$/.test(rid)) return json({ error: "bad_request" }, 400);
+      await store.delete(`requests/${rid}`);
+      return json({ ok: true });
+    }
+
+    // classe de chaque enfant : { aurelius: { level: "5e" } }
+    if (req.method === "PUT" && url.searchParams.get("settings") === "children") {
+      const body = await req.json().catch(() => ({}));
+      const cur = await readJSON(store, CHILDREN_KEY, {});
+      for (const c of CHILD_IDS) {
+        if (body[c]?.level === undefined) continue;
+        const level = body[c].level === null ? null : levelOf(body[c].level);
+        if (body[c].level !== null && !level) return json({ error: "bad_level" }, 400);
+        cur[c] = { ...cur[c], level };
+      }
+      await store.setJSON(CHILDREN_KEY, cur);
+      return json({ children: cur });
+    }
 
     if (req.method === "POST") {
       const text = await req.text();
@@ -111,6 +157,18 @@ export async function handleLessons(req, store, { parentCode } = {}) {
         const c = cleanChildren(body.children);
         if (!c) return json({ error: "bad_children" }, 400);
         patch.children = c;
+      }
+      // titre, matière, niveau corrigés par le parent
+      for (const k of ["title", "subject"]) {
+        if (body[k] === undefined) continue;
+        const v = typeof body[k] === "string" ? body[k].trim().slice(0, 120) : "";
+        if (!v) return json({ error: `bad_${k}` }, 400);
+        patch[k] = v;
+      }
+      if (body.level !== undefined) {
+        const level = levelOf(body.level);
+        if (!level) return json({ error: "bad_level" }, 400);
+        patch.level = level;
       }
       if (body.aiGrading !== undefined) {
         if (typeof body.aiGrading !== "boolean") return json({ error: "bad_ai_grading" }, 400);

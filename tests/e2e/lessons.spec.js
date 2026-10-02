@@ -30,6 +30,13 @@ async function requestLesson(page, { notes = "", photos = 2, onlyLivia = false }
   await expect(page.locator(".gen-status")).toContainText("C'est parti");
 }
 
+/** Déplie la brique d'une leçon (repliée par défaut). */
+async function openRow(row) {
+  if ((await row.locator(".al-expand").getAttribute("aria-expanded")) !== "true") await row.locator(".al-expand").click();
+  await expect(row.locator(".al-body")).toBeVisible();
+  return row;
+}
+
 /** Revient plus tard sur la page (comme un parent qui l'avait fermée) jusqu'à voir la leçon. */
 async function comeBackUntilReady(page) {
   await expect(async () => {
@@ -63,6 +70,11 @@ test("photos → demande envoyée, la page peut se fermer, la leçon arrive en b
   await expect(page.locator(".admin-lesson.job")).toHaveCount(0);
   const row = page.locator(".admin-lesson", { hasText: TITLE });
   await expect(row.locator(".al-status")).toHaveText("Brouillon");
+  // repliée : titre, matière + classe et enfants visibles, réglages cachés
+  await expect(row.locator(".subject-tag")).toContainText("Français");
+  await expect(row.locator(".al-body")).toBeHidden();
+  await expect(row.locator(".kid-badge")).toHaveText(/Livia/);
+  await openRow(row);
   await expect(row.locator('input[value="livia"]')).toBeChecked();
   await expect(row.locator('input[value="aurelius"]')).not.toBeChecked();
   await row.locator(".al-notes summary").click();
@@ -136,7 +148,7 @@ test("recherche web en pause : la génération reprend et aboutit", async ({ pag
 test("aperçu parent : on peut tout parcourir, rien n'est enregistré", async ({ page, request }) => {
   await requestLesson(page);
   await comeBackUntilReady(page);
-  await page.locator(".admin-lesson", { hasText: TITLE }).locator("a", { hasText: "Aperçu" }).click();
+  await (await openRow(page.locator(".admin-lesson", { hasText: TITLE }))).locator("a", { hasText: "Aperçu" }).click();
   await expect(page.locator(".preview-banner")).toContainText("Aperçu parent");
   await expect(page.locator(".callout.definition")).toContainText("Participe passé");
   await expect(page.locator(".liste li")).toHaveCount(3);
@@ -166,6 +178,7 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
   await requestLesson(page);
   await comeBackUntilReady(page);
   const row = page.locator(".admin-lesson", { hasText: TITLE });
+  await openRow(row);
   await row.locator(".toggle-status").click();
   await expect(row.locator(".al-status")).toHaveText("Publiée");
 
@@ -175,6 +188,7 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
   }
 
   await page.goto("/#/parent/lecons");
+  await openRow(row);
   await row.locator('.kid-check:has(input[value="aurelius"]) span').click();
   await expect(row.locator(".al-msg")).toContainText("pour Livia");
   await page.goto("/#/enfant/aurelius");
@@ -184,6 +198,7 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
 
   await page.goto("/#/parent/lecons");
   const builtin = page.locator(".admin-lesson", { hasText: "Les règles de calcul" });
+  await openRow(builtin);
   await expect(builtin.locator(".delete")).toHaveCount(0);
   await builtin.locator('.kid-check:has(input[value="livia"]) span').click();
   await expect(builtin.locator(".al-msg")).toContainText("Enregistré");
@@ -191,6 +206,7 @@ test("publier, choisir les enfants, dépublier, supprimer", async ({ page }) => 
   await expect(page.locator(".lesson-card", { hasText: "Les règles de calcul" })).toHaveCount(0);
 
   await page.goto("/#/parent/lecons");
+  await openRow(row);
   await row.locator(".toggle-status").click();
   await expect(row.locator(".al-status")).toHaveText("Brouillon");
   await row.locator(".delete").click();
@@ -222,7 +238,7 @@ test("modèle, longueur, nombre de questions, correction IA : tout est réglable
   expect(last.tools).toEqual(["web_search_20250305", "web_fetch_20250910"]);
   expect(last.text).toContain("exactement 20 questions au total, réparties en 3 séries");
   await comeBackUntilReady(page);
-  const row = page.locator(".admin-lesson:not(.job)", { hasText: TITLE });
+  const row = await openRow(page.locator(".admin-lesson:not(.job)", { hasText: TITLE }));
   // Haiku en batch : (20 000 × 1 + 30 000 × 5) / 1e6 / 2 + 1 recherche × 0,01 $ = 0,095 $
   await expect(row.locator(".al-cost")).toContainText("création 0,10 $ (Haiku 4.5)");
   await expect(row.locator(".ai-toggle input")).not.toBeChecked();
@@ -244,14 +260,17 @@ test("correction IA des réponses libres : coûts suivis, et coupure par le pare
   // coûts visibles : brique de la leçon et tableau de bord
   await page.goto("/#/parent/lecons");
   const row = page.locator(".admin-lesson", { hasText: "Les règles de calcul" });
+  await openRow(row);
   await expect(row.locator(".al-cost")).toContainText("corrections IA < 0,01 $ (1 réponse)");
   await page.goto("/#/parent");
   await expect(page.locator(".costs-card")).toContainText("Les règles de calcul");
   await expect(page.locator(".costs-card")).toContainText("(1 rép.)");
-  await expect(page.locator("#dash-livia .dash-table")).toContainText("1 rép.");
+  await page.locator(".dash-child-tabs [data-child=livia]").click();
+  await expect(page.locator("#dash-livia .lessons-table")).toContainText("1 rép.");
 
   // le parent coupe l'IA pour cette leçon : plus aucun appel, correction par mots-clés
   await page.goto("/#/parent/lecons");
+  await openRow(row);
   await row.locator(".ai-toggle .ios-track").click();
   await expect(row.locator(".al-msg")).toContainText("désactivée");
   await answerFree();
@@ -273,4 +292,89 @@ test("coller depuis un document garde la structure (titres, listes, gras)", asyn
   });
   await expect(notes).toHaveValue("Niveau : ### Chapitre 2\n\n1. Les **seigneurs**\n2. Les paysans");
   await expect(page.locator(".generate")).toBeEnabled(); // le collage compte comme saisie
+});
+
+test("corriger titre, matière et classe ; onglets enfants, filtre par matière, tri", async ({ page }) => {
+  await page.goto("/#/parent/lecons");
+  const builtin = page.locator(".admin-lesson", { hasText: "Les règles de calcul" });
+  await expect(builtin.locator(".subject-tag")).toContainText("Mathématiques");
+  await expect(builtin.locator(".subject-tag")).toContainText("5e");
+  await openRow(builtin);
+  await builtin.locator('input[name="title"]').fill("Priorités opératoires");
+  await builtin.locator('select[name="level"]').selectOption("4e");
+  await builtin.locator(".save-meta").click();
+  const renamed = page.locator(".admin-lesson", { hasText: "Priorités opératoires" });
+  await expect(renamed.locator(".subject-tag")).toContainText("4e");
+  await expect(renamed.locator(".al-msg")).toContainText("enregistrés");
+  // côté enfant : le nouveau titre, la matière et la classe
+  await page.goto("/#/enfant/aurelius");
+  await expect(page.locator("#nouveau .lesson-card")).toContainText("Priorités opératoires");
+  await expect(page.locator("#nouveau .subject-tag")).toContainText("4e");
+
+  // onglets par enfant : Livia ne voit plus la leçon quand on la retire
+  await page.goto("/#/parent/lecons");
+  await openRow(renamed);
+  await renamed.locator('.kid-check:has(input[value="livia"]) span').click();
+  await expect(renamed.locator(".al-msg")).toContainText("Enregistré");
+  await page.locator('.admin-tabs [data-kid="livia"]').click();
+  await expect(page.locator(".admin-lesson:not(.job)")).toHaveCount(0);
+  await page.locator('.admin-tabs [data-kid="aurelius"]').click();
+  await expect(page.locator(".admin-lesson:not(.job)")).toHaveCount(1);
+  // filtre par matière et tri
+  await expect(page.locator(".subject-filter option")).toHaveCount(2);
+  await page.locator(".subject-filter").selectOption("mathematiques");
+  await expect(page.locator(".admin-lesson:not(.job)")).toHaveCount(1);
+  await expect(page.locator(".sort-btn")).toContainText("récentes");
+  await page.locator(".sort-btn").click();
+  await expect(page.locator(".sort-btn")).toContainText("anciennes");
+  // mémorisé
+  await page.reload();
+  await expect(page.locator('.admin-tabs [data-kid="aurelius"]')).toHaveClass(/active/);
+});
+
+test("illustrations par l'IA : désactivées par défaut, demandées si on coche", async ({ page, request }) => {
+  await page.goto("/#/parent/lecons");
+  const sw = page.locator(".new-illus input");
+  await expect(sw).not.toBeChecked();
+  const cost = page.locator('.model-cost[data-model="claude-sonnet-5"]');
+  const before = await cost.innerText();
+  await expect(page.locator(".illus-cost")).toContainText("+ ≈");
+  await page.locator(".new-illus .ios-track").click();
+  await expect(sw).toBeChecked();
+  await expect(cost).not.toHaveText(before);
+  await page.locator("#notes").fill("Programme de 6e : les angles");
+  await page.locator(".generate").click();
+  await expect(page.locator(".admin-lesson.job")).toContainText("avec illustrations");
+  let last = await (await request.get("http://localhost:4319/last")).json();
+  expect(last.text).toContain('"type":"illustration"');
+  // par défaut : pas d'illustration demandée
+  await page.reload();
+  await expect(page.locator(".new-illus input")).not.toBeChecked();
+  await page.locator("#notes").fill("Programme de 6e : les fractions");
+  await page.locator(".generate").click();
+  await expect(page.locator(".gen-status")).toContainText("C'est parti");
+  last = await (await request.get("http://localhost:4319/last")).json();
+  expect(last.text).toContain("Pas d'illustration");
+});
+
+test("demande de leçon par un enfant → visible par le parent → création pré-remplie", async ({ page }) => {
+  await page.goto("/#/enfant/livia");
+  await page.locator("#request-text").fill("Les fractions décimales, contrôle mardi");
+  await page.locator(".send-request").click();
+  await expect(page.locator(".request-msg")).toContainText("envoyée");
+  await expect(page.locator("#demande")).toContainText("Les fractions décimales");
+
+  await page.goto("/#/parent/lecons");
+  const req = page.locator("#demandes .request-row");
+  await expect(req).toContainText("Livia");
+  await expect(req).toContainText("Les fractions décimales");
+  await req.locator(".use-request").click();
+  await expect(page.locator("#notes")).toHaveValue(/Les fractions décimales, contrôle mardi/);
+  await expect(page.locator('.creator input[name="new-kids"][value="livia"]')).toBeChecked();
+  await expect(page.locator('.creator input[name="new-kids"][value="aurelius"]')).not.toBeChecked();
+  await page.locator(".generate").click();
+  await expect(page.locator(".gen-status")).toContainText("C'est parti");
+  // la demande est traitée : elle disparaît
+  await expect(page.locator("#demandes")).toBeHidden();
+  await expect(page.locator(".admin-lesson.job")).toContainText("pour Livia");
 });

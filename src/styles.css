@@ -479,3 +479,87 @@ fieldset.models legend { font-weight: 700; margin-bottom: 6px; padding: 0; }
 .admin-lesson .ios-switch { margin: 8px 0 0; }
 .costs-card { margin-top: 16px; }
 .field .text-help { font-weight: 400; }
+
+/* ───────── Matière + niveau, illustrations ───────── */
+.subject-tag { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; font-weight: 800; color: var(--ink-2); letter-spacing: 0.01em; }
+.subject-tag b { font-weight: 800; color: var(--ink); }
+.illustration { margin: 12px 0; text-align: center; }
+.illustration .illu { max-width: 100%; height: auto; max-height: 340px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+.illustration figcaption { font-size: 0.88rem; color: var(--ink-2); margin-top: 4px; }
+
+/* ───────── Notes initiale / après reprise ───────── */
+.overall { display: block; }
+.two-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.note-box { display: grid; justify-items: start; gap: 6px; background: #faf7f0; border-radius: 12px; padding: 12px; }
+.note-label { font-weight: 800; }
+.note-box small { font-size: 0.8rem; }
+.redo-actions { justify-content: flex-start; }
+.series-notes { display: grid; justify-items: end; gap: 2px; }
+.series-notes small { font-size: 0.7rem; }
+.note-kind { background: #faf7f0; border-radius: 12px; padding: 10px 12px; font-size: 0.92rem; }
+.note-kind.initial { background: var(--gold-soft); }
+.claim-zone { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.claim-zone p { margin-bottom: 8px; }
+.archive-btn { margin-top: 10px; }
+@media (max-width: 480px) { .two-notes { grid-template-columns: 1fr; } }
+
+/* ───────── Accueil : matières, outils de liste, demande ───────── */
+.lesson-card, .past-row { position: relative; }
+.lc-link { position: absolute; inset: 0; z-index: 0; border-radius: inherit; }
+.lesson-card > :not(.lc-link), .past-row > :not(.lc-link) { position: relative; z-index: 1; pointer-events: none; }
+.lesson-card .btn, .past-row .btn, .lesson-card a, .past-row a { pointer-events: auto; }
+.lc-end { flex-wrap: wrap; }
+.pr-title .subject-tag { font-size: 0.75rem; }
+.subject-rows { display: grid; gap: 10px; }
+.subject-row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+.sr-icon { font-size: 1.6rem; width: 44px; height: 44px; display: grid; place-items: center; background: var(--child-soft); border-radius: 12px; }
+.sr-main { display: grid; gap: 4px; min-width: 0; }
+.sr-main .bar { max-width: 320px; height: 8px; }
+.sr-end { display: grid; justify-items: end; gap: 2px; }
+.list-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.filter-chips { flex: 1; }
+.sort-btn { white-space: nowrap; }
+.request-card { margin-top: 26px; }
+.request-card textarea { font-size: 1rem; }
+.my-requests { margin: 10px 0 0; padding-left: 1.2em; }
+
+/* --- Suivi parents : onglets enfant, pagination, listes repliées --- */
+button.child-tab { border: 0; background: transparent; cursor: pointer; width: 100%; }
+.dash-child-tabs { margin-top: 18px; position: sticky; top: 0; z-index: 5; }
+.kid-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--cs, #eee); color: var(--c, var(--ink)); font-weight: 700; font-size: 0.8rem; white-space: nowrap; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.pager .page { font-size: 0.9rem; color: var(--muted); }
+.more-row { display: flex; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.capped { max-height: 40rem; overflow: auto; overscroll-behavior: contain; }
+.free-answer.claimed { border-color: var(--gold); background: #fff8e6; box-shadow: 0 0 0 2px rgb(234 179 8 / 0.25); }
+.claim-flag { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 999px; background: var(--gold); color: #3b2a00; font-weight: 800; font-size: 0.8rem; }
+.review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.toggle-row { border: 0; background: transparent; cursor: pointer; font-size: 0.9rem; width: 24px; height: 24px; border-radius: 6px; color: var(--ink-2); transition: transform 0.15s; }
+.toggle-row:hover { background: rgb(30 41 59 / 0.06); }
+.toggle-row[aria-expanded="true"] { transform: rotate(90deg); }
+.lr-title { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 11rem; overflow: hidden; }
+.lessons-table .toggle-row { float: left; margin-right: 6px; }
+.level-picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 12px; }
+.level-picker .chip.active { background: var(--c, var(--ink)); color: #fff; border-color: transparent; }
+.subj-icon { font-size: 1.15rem; margin-right: 4px; }
+.nowrap { white-space: nowrap; }
+.chart .grid.minor { stroke-dasharray: 2 4; opacity: 0.6; }
+.subjects-table td, .lessons-table td { vertical-align: top; }
+
+/* --- Parents › Leçons : briques repliées, édition, demandes --- */
+.admin-tabs { margin-top: 8px; grid-template-columns: repeat(3, 1fr); }
+.admin-tools { margin: 4px 0 12px; }
+.field.inline { display: flex; align-items: center; gap: 8px; margin: 0; }
+.field select, .field input { font: inherit; font-weight: 400; padding: 8px 10px; border: 2px solid var(--line); border-radius: 10px; background: var(--card); min-height: 40px; }
+.admin-list { display: grid; gap: 10px; }
+.al-head { flex-wrap: wrap; }
+.al-subject { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; }
+.al-expand { flex: none; }
+.admin-lesson.open { box-shadow: 0 0 0 2px var(--gold), var(--shadow); }
+.al-edit { display: grid; grid-template-columns: 1fr; gap: 0 10px; align-items: end; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.al-edit .field { margin: 6px 0; }
+.al-edit .save-meta { margin: 6px 0; justify-self: start; }
+@media (min-width: 760px) { .al-edit { grid-template-columns: 2fr 1.4fr 0.6fr auto; } }
+.requests .request-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.request-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; border: 1px solid var(--line); border-left: 5px solid var(--c, var(--gold)); border-radius: 12px; padding: 10px 12px; }
+.request-row p { margin: 6px 0 0; white-space: pre-wrap; }

@@ -26,11 +26,11 @@ export function validateInput(body) {
   if (total > MAX_TOTAL_B64) return { error: "too_big", status: 413 };
   const model = CREATION_MODELS.includes(body?.model) ? body.model : DEFAULT_CREATION_MODEL;
   const aiGrading = body?.aiGrading !== false;
-  return { images: images.map(({ media_type, data }) => ({ media_type, data })), notes, model, aiGrading, size: cleanSize(body?.size) };
+  return { images: images.map(({ media_type, data }) => ({ media_type, data })), notes, model, aiGrading, size: cleanSize(body?.size), illustrations: body?.illustrations === true };
 }
 
 /** Paramètres de la requête Messages (sans streaming : elle part dans un batch). */
-export function buildParams(images, notes, model = DEFAULT_CREATION_MODEL, size = {}) {
+export function buildParams(images, notes, model = DEFAULT_CREATION_MODEL, size = {}, { illustrations = false } = {}) {
   return {
     model,
     max_tokens: 64000,
@@ -43,7 +43,7 @@ export function buildParams(images, notes, model = DEFAULT_CREATION_MODEL, size 
         role: "user",
         content: [
           ...images.map((img) => ({ type: "image", source: { type: "base64", media_type: img.media_type, data: img.data } })),
-          { type: "text", text: userPrompt(notes, images.length, size) },
+          { type: "text", text: userPrompt(notes, images.length, size, { illustrations }) },
         ],
       },
     ],

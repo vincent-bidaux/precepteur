@@ -1,5 +1,6 @@
 import { escapeHtml, formatNote } from "../lib/format.js";
-import { state } from "../app.js";
+import { state, addLocalRecord } from "../app.js";
+import { record } from "../lib/store.js";
 
 export const LOGO = `<svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="var(--ink)"/><path d="M14 30c3-9 7-14 10-14s7 5 10 14" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><path d="M11 22c2-6 7-10 13-10s11 4 13 10" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" opacity=".55"/><circle cx="24" cy="31" r="3.2" fill="var(--gold)"/></svg>`;
 
@@ -34,4 +35,29 @@ export function stars(note) {
 export function progressBar(ratio, label = "") {
   const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
   return `<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${escapeHtml(label)}"><span style="width:${pct}%"></span></div>`;
+}
+
+/** Illustration SVG (produite par Claude) affichée comme image : aucun script possible. */
+export function svgImg(svg, alt = "") {
+  return `<img class="illu" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
+}
+
+/** « 📐 Mathématiques · 5e » (matière et niveau d'une leçon). */
+export function subjectTag(lesson, { short = false } = {}) {
+  const s = lesson.subjectInfo;
+  const name = s ? (short && s.short ? s.short : lesson.subject) : lesson.subject;
+  return `<span class="subject-tag">${escapeHtml(s?.icon || "📘")} ${escapeHtml(name)}${lesson.level ? ` <b>· ${escapeHtml(lesson.level)}</b>` : ""}</span>`;
+}
+
+/** Boutons « Archiver / Sortir des archives » : un évènement dans le journal (marche hors ligne). */
+export function bindArchive(root, child, rerender) {
+  root.querySelectorAll(".archive-btn").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const archived = b.dataset.archived !== "true";
+      addLocalRecord(record({ type: "archive", child: child.id, lessonId: b.dataset.lesson, archived }));
+      rerender();
+    }),
+  );
 }
