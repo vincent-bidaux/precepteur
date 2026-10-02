@@ -7,7 +7,8 @@
 
 export default {
   id: "maths-regles-de-calcul-1",
-  subject: "Maths",
+  subject: "Mathématiques",
+  level: "5e",
   title: "Les règles de calcul",
   subtitle: "Les 4 opérations, les puissances et les priorités opératoires",
   icon: "🧮",

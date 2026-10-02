@@ -120,7 +120,12 @@ test("accueil : deux onglets, leçon nouvelle, rien qui déborde", async ({ page
   await expect(page.locator(".child-tab.active")).toContainText("Aurelius");
   await expect(page.locator("#nouveau .lesson-card")).toContainText("Les règles de calcul");
   await expect(page.locator("#a-suivre .empty-line")).toBeVisible();
-  await expect(page.locator("#passees .empty-line")).toBeVisible();
+  await expect(page.locator("#archivees .empty-line")).toBeVisible();
+  await expect(page.locator("#archivees h2")).toContainText("Leçons archivées");
+  await expect(page.locator("#nouveau .subject-tag")).toContainText("Mathématiques");
+  await expect(page.locator("#nouveau .subject-tag")).toContainText("5e");
+  await expect(page.locator("#matieres")).toContainText("Mathématiques");
+  await expect(page.locator("#demande textarea")).toBeVisible();
   await noHorizontalScroll(page);
 
   await page.locator(".child-tab", { hasText: "Livia" }).click();
@@ -173,7 +178,8 @@ test("série parfaite : 20/20, enregistrée, visible à l'accueil et au tableau 
   await page.goto("/#/parent");
   const aurelius = page.locator("#dash-aurelius");
   await expect(aurelius.locator(".journal")).toContainText("Échauffement : les 4 opérations");
-  await expect(aurelius.locator(".dash-table")).toContainText("20");
+  await expect(aurelius.locator(".lessons-table")).toContainText("20");
+  await expect(aurelius.locator(".subjects-table")).toContainText("Mathématiques");
   await expect(page.locator(".summary").first()).toContainText("20");
   // le serveur a bien reçu la tentative
   const res = await page.request.get("/api/log?child=aurelius");
@@ -216,6 +222,7 @@ test("erreurs : correction expliquée, note partielle, on refait ses erreurs", a
   const expected = Math.round(((total - 2 - 0.25) / total) * 40) / 2;
   await expect(page.locator(".result .note-badge")).toContainText(String(expected).replace(".", ","));
 
+  await expect(page.locator(".note-kind")).toContainText("note initiale");
   await page.locator(".retry").click();
   await expect(page.locator(".runner-head")).toContainText("On refait les erreurs");
   await expect(page.locator(".runner-head")).toContainText("/ 2"); // la question réussie avec coup de pouce n'est pas une erreur
@@ -224,9 +231,15 @@ test("erreurs : correction expliquée, note partielle, on refait ses erreurs", a
     await page.locator(".feedback .next").click();
   }
   await expect(page.locator(".result")).toContainText("on a refait les erreurs");
-  // le tour d'erreurs ne remplace pas la note de la série
+  await expect(page.locator(".note-kind")).toContainText("note après reprise");
+  // le tour d'erreurs ne remplace pas la note initiale : il améliore la note après reprise
   await page.goto(`/#/enfant/livia/lecon/${L}/entrainer`);
-  await expect(page.locator(`[data-series="${s.id}"] .note-badge`)).toContainText(String(expected).replace(".", ","));
+  const card = page.locator(`[data-series="${s.id}"]`);
+  await expect(card.locator(".note-badge").first()).toContainText(String(expected).replace(".", ","));
+  await expect(card).toContainText("après reprise");
+  const after = await card.locator(".note-badge").nth(1).innerText();
+  expect(Number(after.replace(",", ".").match(/[\d.]+/)[0])).toBeGreaterThan(expected);
+  await expect(page.locator(".note-box").first()).toContainText(String(expected).replace(".", ","));
 });
 
 test("tous les types de questions (série défis) au clavier et à la souris", async ({ page }) => {
@@ -253,21 +266,22 @@ test("tous les types de questions (série défis) au clavier et à la souris", a
   await expect(page.locator(".result .note-badge")).toContainText("20");
 });
 
-test("réponse libre : idées repérées, réponse modèle, auto-évaluation visible par le parent", async ({ page }) => {
+test("réponse libre : idées repérées, réponse modèle, points réclamés puis validés par le parent", async ({ page }) => {
   const s = serie("s7-explique");
   await page.goto(`/#/enfant/aurelius/lecon/${L}/serie/${s.id}`);
   await page.locator(".free").fill("court");
   await page.locator(".validate").click();
   await expect(page.locator(".invalid")).toContainText("Développe");
-  const txt = "Parce que la puissance est prioritaire, on calcule 4 au carré = 16 puis 3 + 16 = 19.";
+  const txt = "En bref : parce que la puissance est prioritaire, on calcule 4 au carré = 16 puis 3 + 16 = 19.";
   await page.locator(".free").fill(txt);
   await expect(page.locator(".wc")).toContainText("mots");
   await page.locator(".validate").click();
   await expect(page.locator(".feedback .ideas li.ok")).toHaveCount(3);
   await expect(page.locator(".feedback .ideas li.ko")).toHaveCount(1);
   await expect(page.locator(".feedback .model")).toContainText("(3 + 4)");
-  await page.locator('[data-self="partie"]').click();
-  await expect(page.locator('[data-self="partie"]')).toHaveClass(/selected/);
+  await page.locator(".feedback .claim").click();
+  await expect(page.locator(".claim-zone")).toContainText("Points réclamés");
+  await expect(page.locator(".feedback .claim")).toHaveCount(0);
   await page.locator(".feedback .next").click();
   for (const q of s.questions.slice(1)) {
     await answer(page, q);
@@ -275,9 +289,17 @@ test("réponse libre : idées repérées, réponse modèle, auto-évaluation vis
   }
   await page.goto("/#/parent");
   const fa = page.locator("#dash-aurelius .free-answer").filter({ hasText: "4 au carré" });
-  await expect(fa).toContainText("en partie");
+  await expect(fa).toHaveClass(/claimed/);
+  await expect(fa.locator(".claim-flag")).toContainText("à vérifier");
   await expect(fa.locator("blockquote")).toHaveText(txt);
   await expect(fa).toContainText("Correction IA"); // retour de l'IA visible par le parent
+  // les réponses réclamées passent en tête
+  await expect(page.locator("#dash-aurelius .free-answer").first()).toHaveClass(/claimed/);
+  await fa.locator('[data-decision="valide"]').click();
+  const fa2 = page.locator("#dash-aurelius .free-answer").filter({ hasText: "4 au carré" });
+  await expect(fa2.locator(".claim-flag")).toContainText("validés");
+  await expect(fa2.locator('[data-decision="valide"]')).toHaveCount(0);
+  await expect.poll(async () => (await (await page.request.get("/api/log?child=aurelius")).json()).records.some((r) => r.type === "review" && r.decision === "valide")).toBe(true);
 });
 
 test("synchronisation : ce qui est fait sur un appareil apparaît sur l'autre", async ({ page, browser }) => {
@@ -310,15 +332,35 @@ test("hors ligne : rien n'est perdu, envoi au retour du réseau", async ({ page 
   expect(records.some((r) => r.type === "attempt" && r.seriesId === "s3-parentheses")).toBe(true);
 });
 
-test("leçon entièrement réussie → rangée dans « Leçons passées » avec sa note", async ({ page }) => {
+test("leçon entièrement réussie → refaire en entier, archiver, ressortir", async ({ page }) => {
+  test.setTimeout(180000); // on joue les 7 séries
   for (const s of lesson.series) await playSeries(page, "livia", s);
+  await page.goto(`/#/enfant/livia/lecon/${L}/entrainer`);
+  await expect(page.locator(".redo-all")).toBeVisible();
+  await expect(page.locator(".redo-wrong")).toHaveCount(0);
+  await page.locator(".redo-all").click();
+  await expect(page).toHaveURL(/reprise\/tout$/);
+  await expect(page.locator(".runner-head")).toContainText("Toute la leçon");
+  const total = lesson.series.reduce((n, s) => n + s.questions.length, 0);
+  await expect(page.locator(".runner-head")).toContainText(`/ ${total}`);
+
   await page.goto("/#/enfant/livia");
-  await expect(page.locator("#passees .past-row")).toContainText("Les règles de calcul");
-  await expect(page.locator("#passees .note-badge")).toContainText("20");
+  const card = page.locator("#a-suivre .lesson-card", { hasText: "Les règles de calcul" });
+  await expect(card.locator(".note-badge")).toContainText("20");
+  await card.locator(".archive-btn").click();
+  await expect(page.locator("#archivees .past-row")).toContainText("Les règles de calcul");
+  await expect(page.locator("#archivees .note-badge")).toContainText("20");
   await expect(page.locator("#a-suivre .lesson-card")).toHaveCount(0);
   await page.goto("/#/parent");
-  await expect(page.locator("#dash-livia .dash-table .pill")).toContainText("Réussie");
+  await page.locator(".dash-child-tabs [data-child=livia]").click();
+  await expect(page.locator("#dash-livia .lessons-table .pill").first()).toContainText("Réussie");
+  await expect(page.locator("#dash-livia .journal")).toContainText("archivé");
   await noHorizontalScroll(page);
+  // ressortir des archives
+  await page.goto("/#/enfant/livia");
+  await page.locator("#archivees .archive-btn").click();
+  await expect(page.locator("#a-suivre .lesson-card")).toHaveCount(1);
+  await expect(page.locator("#archivees .empty-line")).toBeVisible();
 });
 
 test("association : un toucher par paire, correction d'un mauvais choix", async ({ page }) => {
@@ -385,4 +427,42 @@ test("remettre dans l'ordre : glisser-déposer (doigt ou souris) et clavier", as
   const locked = await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)));
   await dragOnto(page, zone.locator(".order-item").nth(3), zone.locator(".order-item").nth(0));
   expect(await zone.locator(".order-item").evaluateAll((els) => els.map((e) => Number(e.dataset.orig)))).toEqual(locked);
+});
+
+test("tableau de bord : onglets enfants, leçons repliées, matières et programme, listes « Voir plus »", async ({ page }) => {
+  // 30 visites d'Aurelius → journal long
+  const records = Array.from({ length: 30 }, (_, i) => ({ id: `rec-visit-${String(i).padStart(3, "0")}`, type: "visit", child: "aurelius", lessonId: L, page: "reviser", ts: Date.now() - i * 3600e3, durationMs: 20 * 60e3 }));
+  await page.request.post("/api/log", { data: { records } });
+  await playSeries(page, "aurelius", serie("s1-operations"));
+  await page.goto("/#/parent");
+  await expect(page.locator(".dash-child-tabs .child-tab")).toHaveCount(2);
+  await expect(page.locator("#dash-livia")).toHaveCount(0); // un seul enfant affiché à la fois
+  await page.locator(".dash-child-tabs [data-child=aurelius]").click();
+  const a = page.locator("#dash-aurelius");
+  await expect(a).toBeVisible();
+  // chaque enfant a son coût
+  await expect(page.locator(".summary").first()).toContainText("$");
+  // activité en heures (graduée au quart d'heure)
+  await expect(a.locator(".chart .axis").filter({ hasText: /h|min/ }).first()).toBeVisible();
+  // leçons repliées : le détail des séries est caché
+  const lessonRow = a.locator(".lessons-table tbody").first();
+  await expect(lessonRow.locator(".subject-tag")).toContainText("Maths · 5e");
+  await expect(lessonRow.locator("tr.sub").first()).toBeHidden();
+  await lessonRow.locator(".toggle-row").click();
+  await expect(lessonRow.locator("tr.sub").first()).toBeVisible();
+  // matières : sans classe renseignée, pas de lien ; on choisit la classe → lien officiel
+  await expect(a.locator(".subjects-table")).toContainText("classe non renseignée");
+  await a.locator('.level-picker [data-level="5e"]').click();
+  await expect(page.locator("#dash-aurelius .subjects-table a[href*='eduscol']")).toHaveAttribute("href", /cycle-4/);
+  await expect(page.locator(".summary").first()).toContainText("5e");
+  // journal long : rogné, « Voir plus » puis « Voir tout »
+  const j = page.locator("#dash-aurelius .journal-zone");
+  await expect(j.locator("li")).toHaveCount(6);
+  await j.locator(".more").click();
+  await expect(j.locator("li")).toHaveCount(16);
+  await j.locator(".all").click();
+  await expect(j.locator(".more")).toHaveCount(0);
+  expect(await j.locator("li").count()).toBeGreaterThan(30);
+  expect(await j.locator(".journal").evaluate((el) => getComputedStyle(el).overflowY)).toBe("auto");
+  await noHorizontalScroll(page);
 });

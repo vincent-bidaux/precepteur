@@ -5,9 +5,9 @@ import { escapeHtml, rich, formatDuration, formatNote } from "../lib/format.js";
 import { record } from "../lib/store.js";
 import { addLocalRecord, go } from "../app.js";
 import { cancelVisit } from "../lib/visits.js";
-import { seriesSummary } from "../lib/stats.js";
+import { seriesSummary, lessonProgress } from "../lib/stats.js";
 import { aiGradingOf } from "../catalog.js";
-import { topbar, progressBar, noteBadge, stars, lessonUrl } from "./common.js";
+import { topbar, progressBar, noteBadge, stars, lessonUrl, svgImg } from "./common.js";
 import { confetti } from "./fx.js";
 import { makeSortable } from "./sortable.js";
 
@@ -262,8 +262,8 @@ function correctionHtml(q, given, res) {
         .join("")}</ul>`;
       return `${ai}<p><strong>Les idées attendues :</strong></p>${ideas}
         <details class="model" open><summary>Une réponse modèle</summary><p>${rich(q.model)}</p></details>
-        <div class="self-eval"><p><strong>Et toi, comment juges-tu ta réponse ?</strong></p>
-          <div class="chips"><button type="button" class="chip" data-self="tout">😎 J'avais tout</button><button type="button" class="chip" data-self="partie">🤔 En partie</button><button type="button" class="chip" data-self="rien">😅 Pas vraiment</button></div></div>`;
+        ${res.score < 0.999 ? `<div class="claim-zone"><p class="small muted">Compare avec la réponse modèle. Si tu avais vraiment tout dit (avec d'autres mots), tu peux réclamer les points : un parent vérifiera.</p>
+          <button type="button" class="btn ghost claim">🙋 J'ai bien répondu, je mérite les points</button></div>` : ""}`;
     }
     default:
       return "";
@@ -290,8 +290,13 @@ async function gradeWithAI(lesson, series, q, text, child) {
 }
 
 // ───────── la série ─────────
-export function renderRunner(app, { child, lesson, series, state, questions, mode = "normal" }) {
-  const qs = questions || series.questions;
+/**
+ * items : questions à poser, [{ series, q }] — par défaut toutes celles de la série.
+ * mode  : "normal" (série depuis sa carte), "retry" (questions ratées), "redo" (leçon entière).
+ */
+export function renderRunner(app, { child, lesson, series, state, items, mode = "normal" }) {
+  const qs = items || series.questions.map((q) => ({ series, q }));
+  const multi = series.id === "reprise"; // questions de plusieurs séries
   const backUrl = lessonUrl(child, lesson, "entrainer");
   const run = { i: 0, results: [], watch: new Stopwatch() };
   const onVis = () => (document.visibilityState === "visible" ? run.watch.resume() : run.watch.pause());
@@ -303,7 +308,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
   window.addEventListener("hashchange", cleanup);
 
   function showQuestion() {
-    const q = qs[run.i];
+    const { q, series: qSeries } = qs[run.i];
     const view = makeView(q);
     const qStart = run.watch.elapsed;
     let usedHint = false;
@@ -313,12 +318,13 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
       ${topbar({ back: backUrl, backLabel: "Quitter", title: series.title })}
       <main class="page narrow runner">
         <div class="runner-head">
-          <span class="muted">${mode === "retry" ? "🔁 On refait les erreurs · " : ""}Question ${run.i + 1} / ${qs.length}</span>
+          <span class="muted">${mode === "retry" ? "🔁 On refait les erreurs · " : mode === "redo" ? "🔄 Toute la leçon · " : ""}Question ${run.i + 1} / ${qs.length}${multi ? ` · <small>${escapeHtml(qSeries.title)}</small>` : ""}</span>
           <span class="pts muted">${points(q)} pt${points(q) > 1 ? "s" : ""}</span>
         </div>
         ${progressBar(run.i / qs.length, "Avancement de la série")}
         <section class="card question type-${q.type}">
           <h2 class="prompt">${rich(q.prompt)}</h2>
+          ${q.illustration?.svg ? `<figure class="illustration">${svgImg(q.illustration.svg, q.illustration.alt || "")}</figure>` : ""}
           <div class="input-zone">${inputHtml(q, view)}</div>
           <p class="invalid" role="alert" hidden></p>
           ${q.hint ? `<div class="hint" hidden>💡 ${rich(q.hint)}</div>` : ""}
@@ -418,10 +424,10 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
         const fb = app.querySelector(".feedback");
         fb.hidden = false;
         fb.innerHTML = `<div class="card thinking"><div class="spinner small"></div> Le précepteur lit ta réponse…</div>`;
-        const ai = aiGradingOf(lesson) ? await gradeWithAI(lesson, series, q, given, child) : null;
+        const ai = aiGradingOf(lesson) ? await gradeWithAI(lesson, qSeries, q, given, child) : null;
         if (ai && typeof ai.score === "number") res = { ...res, score: ai.score, ai: ai.feedback, found: ai.found?.length ? mapLabels(q, ai.found) : res.found };
       }
-      showFeedback(q, given, res, usedHint, run.watch.elapsed - qStart, view);
+      showFeedback(q, given, res, usedHint, run.watch.elapsed - qStart, view, qSeries);
     }
     validateBtn.addEventListener("click", validate);
     root.addEventListener("keydown", (e) => {
@@ -440,11 +446,11 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
     return q.concepts.filter((c) => set.has(norm(c.label))).map((c) => c.label);
   }
 
-  function showFeedback(q, given, res, usedHint, timeMs, view) {
+  function showFeedback(q, given, res, usedHint, timeMs, view, qSeries) {
     const max = points(q);
     const got = earned(q, res.score, usedHint);
     const entry = {
-      qid: `${series.id}/${q.id}`,
+      qid: `${qSeries.id}/${q.id}`,
       score: Math.round(got * 100) / 100,
       max,
       given: describe(q, given),
@@ -452,7 +458,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
       timeMs: Math.round(timeMs),
       ai: res.ai,
     };
-    run.results.push({ q, res, entry });
+    run.results.push({ q, series: qSeries, res, entry });
 
     // marquage visuel des réponses
     const root = app.querySelector(".question");
@@ -486,12 +492,14 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
       ${correctionHtml(q, given, res)}
       <div class="explain"><strong>📖 L'explication</strong><p>${rich(q.explain)}</p></div>
       <div class="actions"><button type="button" class="btn primary next">${last ? "Voir mon résultat 🏁" : "Question suivante →"}</button></div>`;
-    fb.querySelectorAll("[data-self]").forEach((b) =>
-      b.addEventListener("click", () => {
-        entry.self = b.dataset.self;
-        fb.querySelectorAll("[data-self]").forEach((x) => x.classList.toggle("selected", x === b));
-      }),
-    );
+    // l'enfant estime avoir bien répondu : il prend les points, un parent vérifiera
+    fb.querySelector(".claim")?.addEventListener("click", () => {
+      entry.origScore = entry.score;
+      entry.score = max;
+      entry.claimed = true;
+      fb.querySelector(".v-pts").innerHTML = `+${formatNote(max)} / ${max} <small>(à faire valider par un parent)</small>`;
+      fb.querySelector(".claim-zone").innerHTML = `<p class="ok small"><strong>✋ Points réclamés.</strong> Un parent va vérifier ta réponse.</p>`;
+    });
     const next = fb.querySelector(".next");
     next.addEventListener("click", () => {
       run.i++;
@@ -508,7 +516,7 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
     const score = run.results.reduce((s, r) => s + r.entry.score, 0);
     const max = run.results.reduce((s, r) => s + r.entry.max, 0);
     const n20 = note20(score, max);
-    const before = seriesSummary(state.records, child.id, lesson.id, series.id);
+    const before = multi ? null : seriesSummary(state.records, child.id, lesson.id, series.id);
     const rec = (child.preview ? (r) => ({ id: "apercu", ts: Date.now(), ...r }) : record)({
       type: "attempt",
       child: child.id,
@@ -524,11 +532,12 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
     if (!child.preview) addLocalRecord(rec);
     cancelVisit(); // le temps est déjà dans la tentative
 
-    const misses = run.results.filter((r) => r.res.score < 0.999).map((r) => r.q);
-    const xp = Math.round(n20 * 5) + (before.attempts === 0 && mode !== "retry" ? 20 : 0);
-    const record_ = mode !== "retry" && before.best !== null && n20 > before.best;
+    const misses = run.results.filter((r) => r.res.score < 0.999 && !r.entry.claimed).map((r) => ({ series: r.series, q: r.q }));
+    const firstTime = mode === "normal" && before?.attempts === 0;
+    const xp = Math.round(n20 * 5) + (firstTime ? 20 : 0);
+    const after = lessonProgress(lesson, state.records, child.id);
     const idx = lesson.series.findIndex((s) => s.id === series.id);
-    const nextSeries = lesson.series[idx + 1];
+    const nextSeries = mode === "normal" ? lesson.series[idx + 1] : null;
     const msg =
       n20 >= 18 ? "Magnifique ! Tu maîtrises ce sujet." : n20 >= 14 ? "Très bien ! Encore un petit effort pour la perfection." : n20 >= 10 ? "C'est un bon début. Relis les explications et retente ta chance !" : "Courage ! Relis la fiche de révision, puis refais la série : tu vas progresser.";
 
@@ -536,19 +545,22 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
       ${topbar({ back: backUrl, backLabel: "La leçon" })}
       <main class="page narrow runner">
         <section class="card result">
-          <p class="muted">${escapeHtml(series.title)}${mode === "retry" ? " · on a refait les erreurs" : ""}</p>
+          <p class="muted">${escapeHtml(series.title)}${mode === "retry" ? " · on a refait les erreurs" : mode === "redo" ? " · toute la leçon" : ""}</p>
           ${stars(n20)}
           <div class="result-note">${noteBadge(n20, { size: "huge" })}</div>
           <h1>${escapeHtml(msg)}</h1>
           <div class="result-stats">
             <span>⭐ +${xp} XP</span><span>⏱ ${formatDuration(run.watch.elapsed)}</span><span>✅ ${qs.length - misses.length}/${qs.length} parfaites</span>
-            ${record_ ? `<span class="pill good">🏆 Nouveau record (avant : ${formatNote(before.best)})</span>` : ""}
           </div>
-          ${mode === "retry" ? `<p class="muted small">Ce tour « erreurs » ne change pas ta note de série, mais il compte pour ton XP.</p>` : ""}
+          <p class="note-kind ${firstTime ? "initial" : "reprise"}">${
+            firstTime
+              ? "📌 C'est ta <strong>note initiale</strong> pour cette série : c'est elle qui compte dans ta moyenne."
+              : `🔁 Cette tentative améliore ta <strong>note après reprise</strong> : ${after.reprise !== null ? `<strong>${formatNote(after.reprise)}/20</strong> pour la leçon` : "—"} (ta note initiale ne change pas).`
+          }</p>
           <div class="actions wrap">
             ${misses.length ? `<button type="button" class="btn primary retry">🔁 Refaire mes ${misses.length} erreur${misses.length > 1 ? "s" : ""}</button>` : ""}
             ${nextSeries && mode !== "retry" ? `<a class="btn ${misses.length ? "" : "primary"}" href="${lessonUrl(child, lesson, `serie/${nextSeries.id}`)}">Série suivante →</a>` : ""}
-            <button type="button" class="btn ghost again">Recommencer la série</button>
+            <button type="button" class="btn ghost again">${multi ? "Recommencer" : "Recommencer la série"}</button>
             <a class="btn ghost" href="${backUrl}">Retour à la leçon</a>
           </div>
         </section>
@@ -560,8 +572,12 @@ export function renderRunner(app, { child, lesson, series, state, questions, mod
         </section>
       </main>`;
     if (n20 >= 16) confetti();
-    app.querySelector(".retry")?.addEventListener("click", () => renderRunner(app, { child, lesson, series, state, questions: misses, mode: "retry" }));
-    app.querySelector(".again").addEventListener("click", () => go(lessonUrl(child, lesson, `serie/${series.id}`)));
+    app.querySelector(".retry")?.addEventListener("click", () =>
+      renderRunner(app, { child, lesson, series: { id: "reprise", title: "Mes questions ratées" }, state, items: misses, mode: "retry" }),
+    );
+    app.querySelector(".again").addEventListener("click", () =>
+      go(lessonUrl(child, lesson, multi ? `reprise/${mode === "redo" ? "tout" : "erreurs"}` : `serie/${series.id}`)),
+    );
   }
 
   showQuestion();

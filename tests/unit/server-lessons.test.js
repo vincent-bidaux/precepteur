@@ -68,6 +68,39 @@ describe("/api/lessons", () => {
     expect((await handleLessons(req("PUT", { status: "publiee" }, { id: "inconnue" }), store)).status).toBe(404);
   });
 
+  it("le parent corrige titre, matière et classe", async () => {
+    const { lesson } = await (await handleLessons(req("POST", { lesson: generated }), store)).json();
+    const r = await handleLessons(req("PUT", { title: "  Le participe passé  ", subject: "Français", level: "4ème" }, { id: lesson.id }), store);
+    expect((await r.json()).meta[lesson.id]).toMatchObject({ title: "Le participe passé", subject: "Français", level: "4e" });
+    expect((await handleLessons(req("PUT", { title: "  " }, { id: lesson.id }), store)).status).toBe(400);
+    expect((await handleLessons(req("PUT", { level: "terminale" }, { id: lesson.id }), store)).status).toBe(400);
+    expect((await handleLessons(req("PUT", { title: "Calculs" }, { id: "maths-regles-de-calcul-1" }), store)).status).toBe(200);
+  });
+
+  it("classe des enfants (code parent) et demandes de leçons (sans code)", async () => {
+    const opts = { parentCode: "1234" };
+    const put = (body, code) => new Request("http://x/api/lessons?settings=children", { method: "PUT", headers: code ? { "x-parent-code": code } : {}, body: JSON.stringify(body) });
+    expect((await handleLessons(put({ aurelius: { level: "5e" } }), store, opts)).status).toBe(401);
+    expect((await (await handleLessons(put({ aurelius: { level: "5ème" }, livia: { level: "cm2" } }, "1234"), store, opts)).json()).children).toEqual({ aurelius: { level: "5e" }, livia: { level: "CM2" } });
+    expect((await handleLessons(put({ livia: { level: "lycée" } }, "1234"), store, opts)).status).toBe(400);
+
+    const ask = (body) => new Request("http://x/api/lessons?action=request", { method: "POST", body: JSON.stringify(body) });
+    const r = await handleLessons(ask({ child: "livia", text: "Les fractions s'il te plaît" }), store, opts);
+    expect(r.status).toBe(201);
+    const { request } = await r.json();
+    expect(request.id).toMatch(/^req-/);
+    expect((await handleLessons(ask({ child: "zorro", text: "hack" }), store, opts)).status).toBe(400);
+    expect((await handleLessons(ask({ child: "livia", text: "" }), store, opts)).status).toBe(400);
+    let all = await (await handleLessons(req("GET"), store, opts)).json();
+    expect(all.requests.map((x) => x.text)).toEqual(["Les fractions s'il te plaît"]);
+    expect(all.children.livia.level).toBe("CM2");
+    const del = (code) => new Request(`http://x/api/lessons?request=${request.id}`, { method: "DELETE", headers: code ? { "x-parent-code": code } : {} });
+    expect((await handleLessons(del(), store, opts)).status).toBe(401);
+    expect((await handleLessons(del("1234"), store, opts)).status).toBe(200);
+    all = await (await handleLessons(req("GET"), store, opts)).json();
+    expect(all.requests).toEqual([]);
+  });
+
   it("supprime une leçon créée, jamais une leçon intégrée", async () => {
     const { lesson } = await (await handleLessons(req("POST", { lesson: generated }), store)).json();
     expect((await handleLessons(req("DELETE", undefined, { id: "maths-regles-de-calcul-1" }), store)).status).toBe(400);
@@ -123,6 +156,7 @@ describe("préparation de la demande à Claude", () => {
       model: "claude-sonnet-5",
       aiGrading: true,
       size: { length: 3, questions: 40, series: 5 },
+      illustrations: false, // désactivées par défaut
     });
     const v = validateInput({ notes: "Programme de CM2 : les unités de mesure", model: "gpt-9", aiGrading: false, size: { length: 9, questions: 1000 } });
     expect(v.model).toBe("claude-sonnet-5"); // modèle inconnu → défaut

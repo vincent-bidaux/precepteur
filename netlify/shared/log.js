@@ -33,6 +33,8 @@ function cleanAnswer(a = {}) {
     timeMs: num(a.timeMs),
     self: str(a.self, 20),
     ai: str(a.ai, MAX_TEXT),
+    claimed: a.claimed === true || undefined, // l'enfant s'est attribué les points (à valider par le parent)
+    origScore: num(a.origScore),
   };
 }
 
@@ -57,6 +59,15 @@ export function cleanRecord(r) {
       note20: num(r.note20),
       answers: Array.isArray(r.answers) ? r.answers.slice(0, 100).map(cleanAnswer) : [],
     };
+  }
+  if (r.type === "archive") {
+    // l'enfant range (ou ressort) une leçon de « Leçons archivées »
+    return { ...base, type: "archive", lessonId: str(r.lessonId, 80), archived: r.archived === true };
+  }
+  if (r.type === "review") {
+    // le parent valide (ou refuse) des points que l'enfant s'est attribués
+    if (!["valide", "refuse"].includes(r.decision)) return null;
+    return { ...base, type: "review", attemptId: str(r.attemptId, 64), qid: str(r.qid, 80), decision: r.decision };
   }
   if (r.type === "visit") {
     return {

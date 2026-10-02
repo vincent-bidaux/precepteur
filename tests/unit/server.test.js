@@ -52,6 +52,14 @@ describe("/api/log", () => {
     expect((await (await handleLog(get(), store)).json()).records).toHaveLength(8);
   });
 
+  it("archivage, points réclamés et validation par le parent", async () => {
+    const claim = cleanRecord(rec(1, { answers: [{ qid: "s/q1", score: 2, max: 2, claimed: true, origScore: 0.5 }] }));
+    expect(claim.answers[0]).toMatchObject({ claimed: true, origScore: 0.5, score: 2 });
+    expect(cleanRecord({ id: "rec-arch1", type: "archive", child: "livia", ts: 1, lessonId: "l", archived: true })).toMatchObject({ type: "archive", archived: true });
+    expect(cleanRecord({ id: "rec-rev01", type: "review", child: "livia", ts: 1, attemptId: "rec-0001", qid: "s/q1", decision: "valide" })).toMatchObject({ type: "review", decision: "valide" });
+    expect(cleanRecord({ id: "rec-rev02", type: "review", child: "livia", ts: 1, attemptId: "rec-0001", qid: "s/q1", decision: "peut-etre" })).toBeNull();
+  });
+
   it("rejette les données invalides", async () => {
     expect(cleanRecord(rec(1, { child: "inconnu" }))).toBeNull();
     expect(cleanRecord(rec(1, { id: "x" }))).toBeNull();

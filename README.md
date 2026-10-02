@@ -10,10 +10,18 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
 
 ## Ce que fait l'application
 
-- **Accueil** : un onglet par enfant. Pour chacun : ✨ *Nouveau* (leçons
-  jamais ouvertes), 📌 *À suivre* (en cours, ou terminées avec moins de
-  12/20), 🏛️ *Leçons passées* (réussies, avec la note). Jours d'affilée, XP et
-  niveaux (Discipulus → Philosophus) pour la motivation.
+- **Accueil** : un onglet par enfant. Pour chacun : 📚 *Mes matières*
+  (leçons, statut, avancement et moyenne par matière), ✨ *Nouveau* (leçons
+  jamais ouvertes), 📌 *À suivre*, 🗄️ *Leçons archivées* (bouton « Archiver »
+  sur chaque leçon, « Ressortir » pour la remettre), filtre par matière et tri
+  par date, et 📬 *Demander une leçon* aux parents. Chaque leçon affiche sa
+  matière (une icône par matière) et sa classe (« 📐 Mathématiques · 5e »).
+  Jours d'affilée, XP et niveaux (Discipulus → Philosophus) pour la motivation.
+- **Deux notes par leçon** : la *note initiale* (première tentative de chaque
+  série — c'est elle qui compte dans les moyennes : il faut être concentré dès
+  la première fois) et la *note après reprise*, qu'on améliore autant qu'on
+  veut avec « 🎯 Refaire les questions mal répondues » ou « 🔄 Refaire la
+  leçon en entier ».
 - **Leçon** en trois onglets :
   - 📖 *Réviser* : la fiche de cours complète, exemples dévoilés étape par
     étape, pièges, astuces, table des carrés à retourner, exercices du manuel.
@@ -29,7 +37,9 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
   d'orthographe et la signale), association, remise en ordre, calcul en
   étapes, **réponse libre**.
 - **Réponses libres** : corrigées par mots-clés (idées attendues repérées),
-  réponse modèle affichée, auto-évaluation de l'enfant. Si une clé
+  réponse modèle affichée. Si l'enfant pense avoir bien répondu avec d'autres
+  mots, il clique « 🙋 J'ai bien répondu, je mérite les points » : la réponse
+  est surlignée dans le Suivi parent, qui *valide* ou *refuse* les points. Si une clé
   `ANTHROPIC_API_KEY` est configurée sur Netlify, Claude corrige en plus la
   réponse et écrit un retour personnalisé ; sinon la correction par
   mots-clés s'applique seule, sans erreur.
@@ -44,7 +54,13 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
   questions** (curseurs, avec temps estimés ; par défaut fiche moyenne et
   40 questions), et **correction des réponses libres par l'IA** (interrupteur,
   modifiable ensuite leçon par leçon : sans IA, correction par mots-clés et
-  aucun coût).
+  aucun coût), et **illustrations par l'IA** (schémas SVG dans la fiche et
+  les questions ; désactivé par défaut, coût supplémentaire affiché). La
+  liste « Toutes les leçons » a des onglets Toutes / Aurelius / Livia, un
+  filtre par matière, un tri par date et 20 leçons par page ; chaque brique
+  est repliée, « Gérer » la déplie pour corriger le titre, la matière et la
+  classe, choisir les enfants, publier… Les **demandes des enfants**
+  apparaissent en haut : « Créer cette leçon » pré-remplit le formulaire.
 - **Coûts IA** : coût réel de chaque création (sur la leçon) et des
   corrections de réponses libres (par leçon et par enfant), dans l'onglet
   Leçons et dans le tableau de bord. Tarifs dans `src/lib/pricing.js`. Claude produit la fiche
@@ -56,12 +72,15 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
   **publie** — elle apparaît alors dans « Nouveau » chez l'enfant. On peut
   aussi réattribuer, dépublier ou supprimer n'importe quelle leçon (les
   leçons intégrées au code ne se suppriment pas, mais s'attribuent).
-- **Espace parents › Suivi** (`/#/parent`, bouton « Parents » en haut) : par enfant,
-  moyenne, temps (7 jours / total), jours actifs, graphique du temps sur 28
-  jours, courbe des notes, détail par leçon et par série (meilleure et
-  dernière note, essais, temps), points faibles (questions les plus ratées et
-  dernière réponse donnée), journal d'activité, et **toutes les réponses
-  libres** écrites par l'enfant. Ouvert sans mot de passe pour le moment.
+- **Espace parents › Suivi** (`/#/parent`, bouton « Parents » en haut) :
+  résumé de chaque enfant (moyenne des notes initiales, temps, **coût IA**),
+  coûts IA par leçon (les plus récents d'abord, 15 par page), tableau des
+  **matières** (icône, nombre de leçons, notes initiale / après reprise, coût,
+  lien vers le **programme officiel** du cycle sur éduscol selon la classe de
+  l'enfant, réglable sur place), puis un onglet par enfant : temps sur 28
+  jours en heures (gradué au quart d'heure), courbe des notes, leçons (20 par
+  page, détail des séries replié), points faibles, journal et réponses libres
+  (listes rognées avec « Voir plus » / « Voir tout »).
 
 ## Architecture
 

@@ -71,7 +71,8 @@ http
         model: body.model,
         stop_reason: "end_turn",
         usage: { input_tokens: 800, output_tokens: 200 },
-        content: [{ type: "text", text: JSON.stringify({ score: 1, feedback: "Correction IA de test : très bonne explication.", found: [], missing: [] }) }],
+        // « en bref » dans la réponse de l'enfant → note partielle (pour tester « je mérite les points »)
+        content: [{ type: "text", text: JSON.stringify(raw.toLowerCase().includes("en bref") ? { score: 0.5, feedback: "Correction IA de test : il manque une idée.", found: [], missing: ["(3 + 4)"] } : { score: 1, feedback: "Correction IA de test : très bonne explication.", found: [], missing: [] }) }],
       });
     }
     if (req.method === "POST" && url === "/v1/messages/batches") {

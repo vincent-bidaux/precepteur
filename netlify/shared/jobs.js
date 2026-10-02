@@ -162,9 +162,9 @@ export async function handleJobs(req, store, { client, parentCode } = {}) {
       if (input.error) return json({ error: input.error }, input.status);
       const children = Array.isArray(body.children) ? body.children.filter((c) => CHILD_IDS.includes(c)) : CHILD_IDS;
       const jobId = `job-${rid()}`;
-      const params = buildParams(input.images, input.notes, input.model, input.size);
+      const params = buildParams(input.images, input.notes, input.model, input.size, { illustrations: input.illustrations });
       const batchId = await submit(client, jobId, params);
-      const job = { id: jobId, status: "en-cours", batchId, createdAt: Date.now(), children, photos: input.images.length, label: labelOf(input.notes, input.images.length), model: input.model, aiGrading: input.aiGrading, size: input.size, cost: 0, params, continuations: 0 };
+      const job = { id: jobId, status: "en-cours", batchId, createdAt: Date.now(), children, photos: input.images.length, label: labelOf(input.notes, input.images.length), model: input.model, aiGrading: input.aiGrading, size: input.size, illustrations: input.illustrations, cost: 0, params, continuations: 0 };
       await store.setJSON(`jobs/${jobId}`, job);
       return json({ job: publicJob(job) }, 202);
     }

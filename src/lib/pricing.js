@@ -31,8 +31,8 @@ export function costOf(usage, model, { batch = false } = {}) {
 // Ordres de grandeur pour l'estimation affichée avant création : consignes +
 // exemple ≈ 20 000 jetons, une photo ≈ 1 600 ; la leçon produite grossit avec
 // la longueur de fiche et le nombre de questions (réflexion comprise).
-export function estimateCreation(model, { photos = 0, length = 3, questions = 40 } = {}) {
-  const usage = { input_tokens: 20000 + photos * 1600, output_tokens: 6000 + length * 2500 + questions * 550 };
+export function estimateCreation(model, { photos = 0, length = 3, questions = 40, illustrations = false } = {}) {
+  const usage = { input_tokens: 20000 + photos * 1600, output_tokens: 6000 + length * 2500 + questions * 550 + (illustrations ? 6000 : 0) };
   return costOf(usage, model, { batch: true });
 }
 export const estimateGrading = () => costOf({ input_tokens: 700, output_tokens: 250 }, GRADING_MODEL);
