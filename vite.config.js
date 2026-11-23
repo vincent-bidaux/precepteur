@@ -3,8 +3,8 @@ import path from "node:path";
 
 /**
  * En local (npm run dev / npm run preview), sert aussi /api/* avec les mêmes
- * handlers que les fonctions Netlify, sur un stockage fichier
- * (.data/) au lieu de Netlify Blobs. Pas besoin de netlify-cli pour tester.
+ * handlers que le Worker Cloudflare, sur un stockage fichier
+ * (.data/) au lieu de R2. Pas besoin de wrangler pour tester.
  */
 function localApi() {
   const attach = (server) => {
@@ -12,12 +12,12 @@ function localApi() {
     server.middlewares.use(async (req, res, next) => {
       if (!req.url.startsWith("/api/")) return next();
       try {
-        const { openStore } = await import("./netlify/shared/db.js");
-        const { handleLog } = await import("./netlify/shared/log.js");
-        const { handleGrade } = await import("./netlify/shared/grade.js");
-        const { handleLessons } = await import("./netlify/shared/lessons.js");
-        const { handleJobs } = await import("./netlify/shared/jobs.js");
-        const { anthropicClient } = await import("./netlify/shared/ai.js");
+        const { openStore } = await import("./server/db.js");
+        const { handleLog } = await import("./server/log.js");
+        const { handleGrade } = await import("./server/grade.js");
+        const { handleLessons } = await import("./server/lessons.js");
+        const { handleJobs } = await import("./server/jobs.js");
+        const { anthropicClient } = await import("./server/ai.js");
         const chunks = [];
         for await (const c of req) chunks.push(c);
         const request = new Request(new URL(req.url, "http://localhost"), {

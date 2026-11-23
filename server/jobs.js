@@ -3,7 +3,7 @@
  *
  * La demande part dans l'API Batches d'Anthropic (traitement différé, 50 %
  * moins cher) ; le serveur vérifie ensuite où elle en est — à chaque minute
- * (fonction planifiée jobs-tick) et à chaque ouverture de l'espace parents —
+ * (cron du Worker Cloudflare, handler « scheduled » de src/worker.js) et à chaque ouverture de l'espace parents —
  * et, quand Claude a fini, vérifie / répare la leçon puis l'enregistre en
  * brouillon.
  *
@@ -19,8 +19,8 @@ import { json } from "./log.js";
 import { parentCodeOk } from "./auth.js";
 import { validateInput, buildParams } from "./generate.js";
 import { saveNewLesson } from "./lessons.js";
-import { finalText, extractJson } from "../../src/lib/lesson-check.js";
-import { costOf } from "../../src/lib/pricing.js";
+import { finalText, extractJson } from "../src/lib/lesson-check.js";
+import { costOf } from "../src/lib/pricing.js";
 import { addFailedCost } from "./costs.js";
 
 const MAX_CONTINUATIONS = 3; // reprises après une pause de la recherche web
@@ -67,7 +67,7 @@ export async function advanceJob(store, client, job) {
   const batch = await client.messages.batches.retrieve(job.batchId);
   if (batch.processing_status !== "ended") return job;
 
-  // on « réserve » la tâche pour ne pas la traiter deux fois (fonction planifiée + page ouverte)
+  // on « réserve » la tâche pour ne pas la traiter deux fois (cron + page ouverte)
   const claimed = { ...job, status: "traitement", claimedAt: Date.now() };
   if (!(await casWrite(store, job, claimed))) return job;
   const fresh = await store.getWithMetadata(`jobs/${job.id}`, { type: "json" });

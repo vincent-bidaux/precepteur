@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { handleLog, cleanRecord } from "../../netlify/shared/log.js";
-import { handleGrade, buildPrompt } from "../../netlify/shared/grade.js";
-import { openStore } from "../../netlify/shared/db.js";
+import { handleLog, cleanRecord } from "../../server/log.js";
+import { handleGrade, buildPrompt } from "../../server/grade.js";
+import { openStore } from "../../server/db.js";
 import { findQuestion } from "../../src/lessons/index.js";
 
 const dirs = [];

@@ -13,9 +13,9 @@ import { CHILD_IDS } from "./children.js";
 import { json } from "./log.js";
 import { parentCodeOk } from "./auth.js";
 import { readCosts } from "./costs.js";
-import { levelOf } from "../../src/data/subjects.js";
-import { LESSONS } from "../../src/lessons/index.js";
-import { repairLesson, checkLesson } from "../../src/lib/lesson-check.js";
+import { levelOf } from "../src/data/subjects.js";
+import { LESSONS } from "../src/lessons/index.js";
+import { repairLesson, checkLesson } from "../src/lib/lesson-check.js";
 
 const META_KEY = "meta/lessons";
 const CHILDREN_KEY = "settings/children";

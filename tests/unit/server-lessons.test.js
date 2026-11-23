@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { handleLessons } from "../../netlify/shared/lessons.js";
-import { validateInput, buildParams } from "../../netlify/shared/generate.js";
-import { handleJobs, advanceAll } from "../../netlify/shared/jobs.js";
-import { handleGrade } from "../../netlify/shared/grade.js";
-import { SYSTEM_PROMPT } from "../../netlify/shared/prompt.js";
-import { openStore } from "../../netlify/shared/db.js";
+import { handleLessons } from "../../server/lessons.js";
+import { validateInput, buildParams } from "../../server/generate.js";
+import { handleJobs, advanceAll } from "../../server/jobs.js";
+import { handleGrade } from "../../server/grade.js";
+import { SYSTEM_PROMPT } from "../../server/prompt.js";
+import { openStore } from "../../server/db.js";
 import generated from "../fixtures/generated-lesson.js";
 
 const dirs = [];

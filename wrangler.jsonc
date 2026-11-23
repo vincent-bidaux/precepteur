@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "precepteur",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [{ "pattern": "precepteur.abpq.cc", "custom_domain": true }],
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "r2_buckets": [{ "binding": "PRECEPTEUR_DATA", "bucket_name": "precepteur-data" }],
+  // fait avancer les créations de leçons en cours (API Batches d'Anthropic)
+  "triggers": { "crons": ["* * * * *"] },
+  // appels à Claude et vérification des leçons : marge de CPU (offre payante)
+  "limits": { "cpu_ms": 300000 },
+  "observability": { "enabled": true }
+  // Secrets (non versionnés) : ANTHROPIC_API_KEY, PRECEPTEUR_CODE_PARENT
+}

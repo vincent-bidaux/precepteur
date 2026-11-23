@@ -344,7 +344,7 @@ export function renderDashboard(app, state, ui = { costsPage: 1, lessonsPage: 1 
         ${CHILDREN.map((c) => `<button type="button" role="tab" class="child-tab ${c.id === current.id ? "active" : ""}" aria-selected="${c.id === current.id}" data-child="${c.id}" style="--c:${c.color};--cs:${c.soft}"><span class="emblem">${c.emblem}</span>${escapeHtml(c.name)}</button>`).join("")}
       </nav>
       ${childPanel(current, records, ui)}
-      <p class="footnote muted small">Ce tableau de bord est ouvert (pas de mot de passe) pour le moment. Les données sont stockées dans Netlify Blobs.</p>
+      <p class="footnote muted small">Ce tableau de bord est ouvert (pas de mot de passe) pour le moment. Les données sont stockées dans Cloudflare R2.</p>
     </main>`;
 
   const rerender = (patch = {}) => renderDashboard(app, state, { ...ui, ...patch });

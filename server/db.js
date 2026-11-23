@@ -1,10 +1,10 @@
 /**
- * Accès au stockage. En production : Netlify Blobs (store "precepteur",
- * cohérence forte). En local / tests : si PRECEPTEUR_FS_STORE est défini,
- * un dossier de fichiers JSON qui imite la même API (get + etag, set
- * conditionnel, list par préfixe).
+ * Accès au stockage. En production : Cloudflare R2 (bucket "precepteur-data",
+ * binding PRECEPTEUR_DATA, cohérence forte, écritures conditionnelles par
+ * etag). En local / tests : si PRECEPTEUR_FS_STORE est défini, un dossier
+ * de fichiers JSON qui imite la même API (get + etag, set conditionnel,
+ * list par préfixe).
  */
-import { getStore } from "@netlify/blobs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -62,9 +62,48 @@ function fileStore(dir) {
   };
 }
 
-export function openStore() {
-  const dir = process.env.PRECEPTEUR_FS_STORE;
+/** Même API sur un bucket R2 (lecture après écriture garantie, put conditionnel atomique). */
+export function r2Store(bucket) {
+  return {
+    async getWithMetadata(key) {
+      const obj = await bucket.get(key);
+      if (!obj) return null;
+      return { data: JSON.parse(await obj.text()), etag: obj.etag };
+    },
+    async setJSON(key, value, opts = {}) {
+      let onlyIf;
+      if (opts.onlyIfNew) onlyIf = new Headers({ "If-None-Match": "*" });
+      else if (opts.onlyIfMatch) onlyIf = { etagMatches: opts.onlyIfMatch };
+      const res = await bucket.put(key, JSON.stringify(value), {
+        httpMetadata: { contentType: "application/json" },
+        ...(onlyIf ? { onlyIf } : {}),
+      });
+      // put conditionnel refusé → null
+      return res ? { modified: true, etag: res.etag } : { modified: false };
+    },
+    delete(key) {
+      return bucket.delete(key);
+    },
+    async list({ prefix = "" } = {}) {
+      const blobs = [];
+      let cursor;
+      do {
+        const page = await bucket.list({ prefix, cursor });
+        blobs.push(...page.objects.map((o) => ({ key: o.key })));
+        cursor = page.truncated ? page.cursor : undefined;
+      } while (cursor);
+      return { blobs };
+    },
+  };
+}
+
+/**
+ * env : bindings du Worker (PRECEPTEUR_DATA = bucket R2) ; en local / tests,
+ * process.env avec PRECEPTEUR_FS_STORE (dossier de fichiers JSON).
+ */
+export function openStore(env = process.env) {
+  const dir = env?.PRECEPTEUR_FS_STORE || process.env.PRECEPTEUR_FS_STORE;
   if (dir) return fileStore(dir);
-  // cohérence forte : une lecture juste après une écriture doit la voir
-  return getStore({ name: "precepteur", consistency: "strong" });
+  if (env?.PRECEPTEUR_DATA) return r2Store(env.PRECEPTEUR_DATA);
+  throw new Error("Aucun stockage configuré (binding R2 PRECEPTEUR_DATA ou PRECEPTEUR_FS_STORE)");
 }

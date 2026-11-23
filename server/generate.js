@@ -1,16 +1,16 @@
 /**
  * Préparation d'une demande de leçon à Claude, à partir de photos et/ou
  * d'un texte (plan, partie du programme, notes). La demande elle-même est
- * envoyée en tâche de fond par netlify/shared/jobs.js (API Batches).
+ * envoyée en tâche de fond par server/jobs.js (API Batches).
  */
 import { SYSTEM_PROMPT, toolsFor, userPrompt } from "./prompt.js";
-import { CREATION_MODELS, DEFAULT_CREATION_MODEL } from "../../src/lib/pricing.js";
-import { cleanSize } from "../../src/lib/lesson-size.js";
+import { CREATION_MODELS, DEFAULT_CREATION_MODEL } from "../src/lib/pricing.js";
+import { cleanSize } from "../src/lib/lesson-size.js";
 export const MAX_IMAGES = 10;
 export const MIN_TEXT = 20;
 export const MAX_TEXT = 12000;
 const TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const MAX_TOTAL_B64 = 5_500_000; // limite de taille d'une requête de fonction Netlify (6 Mo)
+const MAX_TOTAL_B64 = 5_500_000; // limite raisonnable de taille d'une demande (photos en base64)
 
 /** Vérifie la demande du parent. → { images, notes } ou { error, status } */
 export function validateInput(body) {

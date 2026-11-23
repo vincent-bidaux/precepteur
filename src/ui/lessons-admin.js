@@ -588,7 +588,7 @@ export function renderLessonsAdmin(app, state) {
 function errorMessage(code, status) {
   switch (code) {
     case "ai_disabled":
-      return "La création avec Claude n'est pas activée : ajoute la variable ANTHROPIC_API_KEY dans les réglages du site Netlify, puis redéploie.";
+      return "La création avec Claude n'est pas activée : ajoute le secret ANTHROPIC_API_KEY dans les réglages du Worker Cloudflare (precepteur).";
     case "code_parent":
       return "Code parent incorrect.";
     case "no_content":

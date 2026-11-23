@@ -16,7 +16,7 @@ import { loadLesson, aiGradingOn } from "./lessons.js";
 import { CHILD_IDS } from "./children.js";
 import { json } from "./log.js";
 
-import { GRADING_MODEL, costOf } from "../../src/lib/pricing.js";
+import { GRADING_MODEL, costOf } from "../src/lib/pricing.js";
 import { addGradingCost } from "./costs.js";
 
 const SCHEMA = {

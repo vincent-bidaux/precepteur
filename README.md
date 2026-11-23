@@ -6,7 +6,8 @@ libres…), « Plus loin » (ce qui vient après, au-dessus, ailleurs), suivi de
 l'activité et des notes, et un tableau de bord pour les parents.
 
 Ordinateur et mobile (installable sur l'écran d'accueil). Hébergé sur
-Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
+Cloudflare Workers (https://precepteur.abpq.cc), code sur GitHub
+(`vincent-bidaux/precepteur`).
 
 ## Ce que fait l'application
 
@@ -41,7 +42,7 @@ Netlify, code sur GitHub (`vincent-bidaux/precepteur`).
   réponse modèle affichée. Si l'enfant pense avoir bien répondu avec d'autres
   mots, il clique « 🙋 J'ai bien répondu, je mérite les points » : la réponse
   est surlignée dans le Suivi parent, qui *valide* ou *refuse* les points. Si une clé
-  `ANTHROPIC_API_KEY` est configurée sur Netlify, Claude corrige en plus la
+  `ANTHROPIC_API_KEY` est configurée sur le Worker Cloudflare, Claude corrige en plus la
   réponse et écrit un retour personnalisé ; sinon la correction par
   mots-clés s'applique seule, sans erreur.
 - **Espace parents › Leçons** (`/#/parent/lecons`) : **créer une leçon avec
@@ -101,17 +102,22 @@ src/catalog.js              Catalogue complet : leçons intégrées + créées, 
 src/ui/lessons-admin.js     Espace parents › Leçons (photos → Claude, publication, affectation)
 src/lib/lesson-check.js     Vérification / réparation d'une leçon (tests, serveur, aperçu)
 src/lib/sse.js, images.js   Lecture du flux de Claude ; redimensionnement des photos
-netlify/functions/log.js    GET/POST /api/log   (journal, Netlify Blobs)
-netlify/functions/grade.js  POST /api/grade     (correction IA optionnelle)
-netlify/functions/lessons.js GET/POST/PUT/DELETE /api/lessons (leçons créées + réglages)
-netlify/functions/jobs.js   GET/POST/DELETE /api/jobs (leçons en cours de création)
-netlify/functions/jobs-tick.js  fonction planifiée (chaque minute) : fait avancer les créations
-netlify/shared/             Handlers testables, accès stockage, liste blanche des enfants
+src/worker.js               Worker Cloudflare : route /api/* vers les handlers, le reste
+                            aux fichiers statiques (dist/) ; cron (chaque minute) :
+                            fait avancer les créations de leçons
+server/log.js               GET/POST /api/log   (journal)
+server/grade.js             POST /api/grade     (correction IA optionnelle)
+server/lessons.js           GET/POST/PUT/DELETE /api/lessons (leçons créées + réglages)
+server/jobs.js              GET/POST/DELETE /api/jobs (leçons en cours de création)
+server/db.js                Accès stockage : R2 en production, fichiers JSON en local
+server/                     (aussi) IA, code parent, liste blanche des enfants
+wrangler.jsonc              Configuration du Worker (assets, R2, cron, domaine)
 ```
 
 **Données** : tout le suivi est un journal d'évènements (`attempt` = série
 terminée, avec chaque réponse ; `visit` = temps passé sur une page).
-Stockage Netlify Blobs, store `precepteur`, un blob par enfant et par mois
+Stockage Cloudflare R2, bucket `precepteur-data` (binding `PRECEPTEUR_DATA`),
+un objet JSON par enfant et par mois
 (`log/<enfant>/<AAAA-MM>`), écritures conditionnelles (etag) pour ne rien
 perdre si deux appareils écrivent en même temps, cohérence forte.
 
@@ -121,8 +127,8 @@ perdre si deux appareils écrivent en même temps, cohérence forte.
 **Création en arrière-plan** : la demande (photos et/ou texte) part dans
 l'**API Batches** d'Anthropic (`jobs/<id>`), traitée sans que la page reste
 ouverte — en général quelques minutes, au plus 24 h, et 50 % moins cher. Le
-serveur vérifie où elle en est chaque minute (fonction planifiée
-`jobs-tick`, uniquement sur le site de production) et à chaque ouverture de
+serveur vérifie où elle en est chaque minute (cron du Worker, handler
+`scheduled` de `src/worker.js`, uniquement en production) et à chaque ouverture de
 l'espace parents ; quand Claude a fini, la leçon est vérifiée, réparée et
 enregistrée en brouillon, avec ses remarques de vérification. On peut
 arrêter une création en cours (annulée chez Anthropic) ou relancer une
@@ -130,8 +136,7 @@ création échouée. Claude peut consulter le **programme officiel** (recherche
 web limitée à education.gouv.fr et eduscol.education.fr), par exemple pour
 « Programme de CM2 : les unités de mesure ». Modèle au choix (Sonnet 5 par
 défaut) ; corrections des réponses libres avec Haiku 4.5, le moins cher.
-(Les fonctions « background » de Netlify, plus rapides à suivre, ne sont pas
-disponibles sur l'offre gratuite.)
+
 
 **Hors ligne** : chaque évènement est d'abord mis en file dans le
 `localStorage`, puis envoyé ; le serveur ignore les doublons. Si le réseau
@@ -151,19 +156,23 @@ npm run test:e2e     # parcours complets dans Chromium, ordinateur + mobile
 npm run check        # tout : unitaires + build + e2e
 ```
 
-Pas besoin de `netlify-cli` : un petit plugin Vite (`vite.config.js`) sert
+Pas besoin de `wrangler` : un petit plugin Vite (`vite.config.js`) sert
 `/api/log` et `/api/grade` avec les mêmes handlers que les fonctions
-Netlify, sur un stockage fichier.
+le Worker, sur un stockage fichier.
 
-## Déployer sur Netlify (une seule fois)
+## Déployer (Cloudflare Workers)
 
-1. Netlify → *Add new site* → *Import an existing project* → GitHub →
-   dépôt `vincent-bidaux/precepteur`.
-2. Rien à régler : tout est lu dans `netlify.toml` (build `npm run build`,
-   publication `dist`, fonctions `netlify/functions`).
-3. Nom du site : `precepteur` → https://precepteur.netlify.app
-4. Netlify Blobs fonctionne sans configuration.
-5. *Site configuration → Environment variables* :
+Le Worker `precepteur` (compte Cloudflare de Vincent) est relié au dépôt
+GitHub par **Workers Builds** : build `npm run build`, déploiement
+`npx wrangler deploy` (configuration dans `wrangler.jsonc`). Domaine :
+https://precepteur.abpq.cc.
+
+- Données : bucket R2 `precepteur-data` (lecture après écriture garantie,
+  écritures conditionnelles par etag).
+- Cron `* * * * *` (`triggers.crons`) : fait avancer les créations de leçons.
+- En-tête `Cache-Control` immuable sur `/assets/*` : `public/_headers`.
+- *Secrets* du Worker (Cloudflare → Workers → precepteur → Settings →
+  Variables and Secrets) :
    - `ANTHROPIC_API_KEY` (clé sur https://console.anthropic.com) : **nécessaire
      pour créer des leçons avec Claude**, et active aussi la correction IA
      des réponses libres. Sans elle, l'application fonctionne mais ces deux
@@ -173,7 +182,10 @@ Netlify, sur un stockage fichier.
      coûte quelques dizaines de centimes par leçon : ce code évite qu'un
      inconnu tombé sur l'adresse ne s'en serve). Il est mémorisé sur
      l'appareil après la première saisie.
-   Après avoir ajouté une variable : *Deploys → Trigger deploy*.
+
+Variables réservées aux tests locaux (jamais en production) :
+`PRECEPTEUR_FS_STORE` (stockage fichier), `PRECEPTEUR_ANTHROPIC_URL` et
+`MOCK_CLAUDE_PORT` (faux serveur Claude), `SHOTS` (captures d'écran).
 
 Ensuite chaque push sur `main` redéploie.
 
@@ -201,7 +213,7 @@ utilisée** : l'historique des notes y est rattaché.
 
 ## Idées pour plus tard
 
-- Protéger l'espace parents par un mot de passe (variable d'environnement
-  Netlify + cookie signé).
+- Protéger l'espace parents par un mot de passe (secret du Worker + cookie
+  signé).
 - Répétition espacée : reproposer automatiquement les questions ratées
   quelques jours plus tard.

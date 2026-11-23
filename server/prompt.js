@@ -1,9 +1,9 @@
 // Consignes données à Claude pour transformer des photos de leçon et/ou un
 // texte (plan, extrait du programme, notes) en leçon Précepteur (format JSON de src/lessons/*.js). La leçon intégrée sert
 // d'exemple complet du format et du niveau d'exigence attendu.
-import example from "../../src/lessons/maths-regles-de-calcul-1.js";
-import { sizeInstruction } from "../../src/lib/lesson-size.js";
-import { SUBJECTS, LEVELS } from "../../src/data/subjects.js";
+import example from "../src/lessons/maths-regles-de-calcul-1.js";
+import { sizeInstruction } from "../src/lib/lesson-size.js";
+import { SUBJECTS, LEVELS } from "../src/data/subjects.js";
 
 const SUBJECT_NAMES = SUBJECTS.filter((s) => s.id !== "autre").map((s) => `"${s.label}"`).join(" | ");
 const LEVEL_NAMES = LEVELS.map((l) => `"${l}"`).join(" | ");

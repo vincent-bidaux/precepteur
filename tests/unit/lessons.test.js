@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { LESSONS, findQuestion } from "../../src/lessons/index.js";
 import { CHILDREN } from "../../src/data/children.js";
-import { CHILD_IDS } from "../../netlify/shared/children.js";
+import { CHILD_IDS } from "../../server/children.js";
 import { gradeQuestion, gradeFree } from "../../src/lib/grading.js";
 import { tryEvaluate, sameNumber } from "../../src/lib/expr.js";
 

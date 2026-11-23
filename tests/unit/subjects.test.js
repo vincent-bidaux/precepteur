@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { subjectOf, levelOf, programUrl, cycleOf, taughtSubjects } from "../../src/data/subjects.js";
 import { subjectBreakdown, withAllSubjects } from "../../src/lib/stats.js";
 import { svgOk, repairLesson } from "../../src/lib/lesson-check.js";
-import { userPrompt, SYSTEM_PROMPT } from "../../netlify/shared/prompt.js";
+import { userPrompt, SYSTEM_PROMPT } from "../../server/prompt.js";
 import { estimateCreation } from "../../src/lib/pricing.js";
 import generated from "../fixtures/generated-lesson.js";
 
